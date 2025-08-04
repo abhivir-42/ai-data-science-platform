@@ -3,3 +3,7 @@ description:
 globs:
 alwaysApply: false
 ---
+
+Always make sure that you start the app or the backend from the right directory. 
+
+Always think carefully. Read the implementation plan. Understand where we are in the codebase. Understand carefully what needs to be done next. Understand how it can be achieved correctly. Then go on implementing on the right branch. test well. make sure what you do is correct and appropriate. Lives of people in America depends on your work being correct as per my requirements. 
