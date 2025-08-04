@@ -10,6 +10,7 @@ import uuid
 from loguru import logger
 
 from app.core.config import settings
+from app.services.file_processing import file_processing_service, FileProcessingError
 
 router = APIRouter()
 
@@ -85,44 +86,51 @@ async def upload_data(file: UploadFile = File(...)) -> DataUploadResponse:
 
 @router.get("/preview/{file_id}")
 async def preview_data(file_id: str) -> DataPreviewResponse:
-    """Preview uploaded data"""
+    """Preview uploaded data using AI agent analysis"""
     try:
-        # Find file by ID
-        files = [f for f in os.listdir(settings.UPLOAD_PATH) if f.startswith(file_id)]
-        if not files:
-            raise HTTPException(status_code=404, detail="File not found")
+        # Get file metadata first
+        try:
+            metadata = file_processing_service.get_file_metadata(file_id)
+        except FileProcessingError as e:
+            raise HTTPException(status_code=404, detail=str(e))
         
-        filename = files[0]
-        original_filename = filename[37:]  # Remove UUID prefix
-        file_path = os.path.join(settings.UPLOAD_PATH, filename)
-        
-        # TODO: Implement actual data preview using data_loader tools
-        # This is a placeholder implementation
-        preview_data = {
-            "rows": 100,
-            "columns": 10,
-            "sample_data": [
-                {"col1": "value1", "col2": "value2"},
-                {"col1": "value3", "col2": "value4"}
-            ],
-            "data_types": {
-                "col1": "string",
-                "col2": "string"
-            }
-        }
-        
-        metadata = {
-            "file_size": os.path.getsize(file_path),
-            "file_type": os.path.splitext(original_filename)[1],
-            "upload_time": os.path.getctime(file_path)
-        }
-        
-        return DataPreviewResponse(
-            file_id=file_id,
-            filename=original_filename,
-            preview=preview_data,
-            metadata=metadata
-        )
+        # Use AI agent to analyze the file
+        try:
+            analysis_result = await file_processing_service.analyze_file(file_id)
+            preview_data = file_processing_service.extract_data_preview(analysis_result)
+            
+            logger.info(f"Data preview completed for file {file_id}")
+            
+            return DataPreviewResponse(
+                file_id=file_id,
+                filename=metadata["original_filename"],
+                preview=preview_data,
+                metadata={
+                    "file_size": metadata["file_size"],
+                    "file_type": metadata["file_type"],
+                    "upload_time": metadata["upload_time"],
+                    "analysis_status": analysis_result.get("analysis_status", "completed")
+                }
+            )
+            
+        except FileProcessingError as e:
+            logger.error(f"File analysis failed for {file_id}: {e}")
+            # Return basic metadata with error info
+            return DataPreviewResponse(
+                file_id=file_id,
+                filename=metadata["original_filename"],
+                preview={
+                    "analysis_summary": f"Analysis failed: {str(e)}",
+                    "data_loaded": False,
+                    "error": str(e)
+                },
+                metadata={
+                    "file_size": metadata["file_size"],
+                    "file_type": metadata["file_type"],
+                    "upload_time": metadata["upload_time"],
+                    "analysis_status": "failed"
+                }
+            )
         
     except HTTPException:
         raise
@@ -133,16 +141,17 @@ async def preview_data(file_id: str) -> DataPreviewResponse:
 
 @router.post("/validate")
 async def validate_data(file_id: str) -> Dict[str, Any]:
-    """Validate data quality"""
+    """Validate data quality using AI agent analysis"""
     try:
-        # TODO: Implement data validation using appropriate tools
-        return {
-            "file_id": file_id,
-            "status": "valid",
-            "issues": [],
-            "recommendations": [],
-            "message": "Data validation completed (placeholder)"
-        }
+        # Use file processing service for real validation
+        validation_result = await file_processing_service.validate_data_quality(file_id)
+        
+        logger.info(f"Data validation completed for file {file_id}")
+        return validation_result
+        
+    except FileProcessingError as e:
+        logger.error(f"Data validation failed for {file_id}: {e}")
+        raise HTTPException(status_code=404 if "not found" in str(e).lower() else 500, detail=str(e))
     except Exception as e:
         logger.error(f"Data validation failed for {file_id}: {e}")
         raise HTTPException(status_code=500, detail="Data validation failed")
@@ -150,21 +159,17 @@ async def validate_data(file_id: str) -> Dict[str, Any]:
 
 @router.get("/summary/{file_id}")
 async def get_data_summary(file_id: str) -> Dict[str, Any]:
-    """Get data summary statistics"""
+    """Get comprehensive data summary using AI agent analysis"""
     try:
-        # TODO: Implement data summary using EDA tools
-        return {
-            "file_id": file_id,
-            "summary": {
-                "total_rows": 1000,
-                "total_columns": 10,
-                "missing_values": 25,
-                "duplicate_rows": 5,
-                "data_types": {"numeric": 6, "categorical": 4}
-            },
-            "statistics": {},
-            "message": "Data summary generated (placeholder)"
-        }
+        # Use file processing service for real summary
+        summary_result = await file_processing_service.get_data_summary(file_id)
+        
+        logger.info(f"Data summary completed for file {file_id}")
+        return summary_result
+        
+    except FileProcessingError as e:
+        logger.error(f"Data summary failed for {file_id}: {e}")
+        raise HTTPException(status_code=404 if "not found" in str(e).lower() else 500, detail=str(e))
     except Exception as e:
         logger.error(f"Data summary failed for {file_id}: {e}")
         raise HTTPException(status_code=500, detail="Data summary failed")
