@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from loguru import logger
 
 from app.core.agent_registry import agent_registry
+from app.services.agent_execution import agent_execution_service
 
 router = APIRouter()
 
@@ -65,9 +66,11 @@ async def get_agent_schema(agent_id: str) -> Dict[str, Any]:
         if not agent_class:
             raise HTTPException(status_code=404, detail=f"Agent not found: {agent_id}")
         
-        # TODO: Extract actual schema from agent class
-        # This is a placeholder implementation
+        # Get agent metadata
         metadata = agent_registry.get_agent_metadata(agent_id)
+        
+        # Generate parameter schema based on agent type
+        schema = _generate_agent_parameter_schema(agent_id, metadata)
         
         return {
             "agent_id": agent_id,
@@ -75,12 +78,7 @@ async def get_agent_schema(agent_id: str) -> Dict[str, Any]:
             "description": metadata.get("description", ""),
             "inputs": metadata.get("inputs", []),
             "outputs": metadata.get("outputs", []),
-            "parameters": {
-                # TODO: Generate actual parameter schema from agent class
-                "type": "object",
-                "properties": {},
-                "required": []
-            }
+            "parameters": schema
         }
     except HTTPException:
         raise
@@ -114,26 +112,14 @@ async def execute_agent(
                 message=f"Agent {agent_id} execution queued with job ID: {job_id}"
             )
         else:
-            # Synchronous execution
+            # Synchronous execution using the execution service
             try:
-                # Create agent instance
-                agent_instance = agent_registry.create_agent_instance(agent_id)
-                if not agent_instance:
-                    raise HTTPException(status_code=500, detail=f"Failed to create agent instance: {agent_id}")
-                
-                # TODO: Execute agent with parameters
-                # This is a placeholder - actual execution depends on agent interface
-                result = {
-                    "agent_id": agent_id,
-                    "parameters": request.parameters,
-                    "status": "completed",
-                    "message": f"Agent {agent_id} executed successfully (placeholder)"
-                }
+                result = agent_execution_service.execute_agent_sync(agent_id, request.parameters)
                 
                 return AgentExecutionResponse(
-                    status="completed",
-                    result=result,
-                    message=f"Agent {agent_id} executed successfully"
+                    status=result["status"],
+                    result=result.get("result"),
+                    message=result["message"]
                 )
                 
             except Exception as e:
@@ -159,4 +145,95 @@ async def get_agents_by_category(category: str) -> List[Dict[str, Any]]:
         return agents
     except Exception as e:
         logger.error(f"Failed to get agents by category {category}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to get agents by category") 
+        raise HTTPException(status_code=500, detail="Failed to get agents by category")
+
+
+def _generate_agent_parameter_schema(agent_id: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
+    """Generate parameter schema based on agent type"""
+    
+    # Base schema structure
+    base_schema = {
+        "type": "object",
+        "properties": {},
+        "required": []
+    }
+    
+    # Agent-specific parameter schemas
+    if agent_id == "data_analysis":
+        base_schema["properties"] = {
+            "csv_url": {
+                "type": "string",
+                "description": "URL or path to CSV file for analysis",
+                "format": "uri"
+            },
+            "user_request": {
+                "type": "string", 
+                "description": "Natural language analysis request"
+            }
+        }
+        base_schema["required"] = ["csv_url", "user_request"]
+        
+    elif agent_id == "supervisor":
+        base_schema["properties"] = {
+            "csv_url": {
+                "type": "string",
+                "description": "URL or path to CSV file for analysis",
+                "format": "uri"
+            },
+            "natural_language_request": {
+                "type": "string",
+                "description": "Natural language request for analysis workflow"
+            }
+        }
+        base_schema["required"] = ["csv_url", "natural_language_request"]
+        
+    elif agent_id in ["data_wrangling", "feature_engineering"]:
+        base_schema["properties"] = {
+            "data_raw": {
+                "type": "string",
+                "description": "Raw data (file path, URL, or uploaded file ID)"
+            },
+            "user_instructions": {
+                "type": "string",
+                "description": "Instructions for data processing"
+            }
+        }
+        base_schema["required"] = ["data_raw", "user_instructions"]
+        
+    elif agent_id == "ml_prediction":
+        base_schema["properties"] = {
+            "data_raw": {
+                "type": "string", 
+                "description": "Dataset for ML training (file path, URL, or uploaded file ID)"
+            },
+            "target_variable": {
+                "type": "string",
+                "description": "Target variable for prediction/classification"
+            },
+            "user_instructions": {
+                "type": "string",
+                "description": "ML training instructions and requirements"
+            }
+        }
+        base_schema["required"] = ["data_raw", "target_variable", "user_instructions"]
+        
+    elif agent_id in ["data_loader", "data_cleaning", "data_visualization"]:
+        base_schema["properties"] = {
+            "user_instructions": {
+                "type": "string",
+                "description": "Instructions for the agent"
+            }
+        }
+        base_schema["required"] = ["user_instructions"]
+        
+    else:
+        # Generic schema
+        base_schema["properties"] = {
+            "user_instructions": {
+                "type": "string",
+                "description": "Instructions for the agent"
+            }
+        }
+        base_schema["required"] = ["user_instructions"]
+    
+    return base_schema 

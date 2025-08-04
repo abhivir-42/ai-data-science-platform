@@ -54,7 +54,7 @@ class Settings(BaseSettings):
     METRICS_PORT: int = 8001
     
     class Config:
-        env_file = ".env"
+        env_file = "../.env"
         case_sensitive = True
 
 
