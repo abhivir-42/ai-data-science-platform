@@ -1,0 +1,410 @@
+---
+description: uAgent REST Endpoint Development Rules for AI Data Science Platform
+globs: ["rest-endpoint-creation/**/*"]
+alwaysApply: false
+---
+
+# AI Data Science Platform - uAgent REST Endpoint Development Rules
+
+## 🎯 Core Architecture Pattern
+
+Follow the established pattern from `rest-endpoint-creation/data_cleaning_endpoint/`:
+
+```
+Frontend (Flask) → uAgent REST API → Business Logic Agent
+```
+
+### Key Components:
+1. **Flask Frontend** (`frontend_app.py`) - Web interface on port 5000
+2. **uAgent REST Wrapper** (`{agent_name}_rest_agent.py`) - REST API on port 800X
+3. **Business Logic Agent** - The actual agent implementation
+
+## 🔧 uAgent REST Endpoint Implementation
+
+### 1. File Structure
+```
+rest-endpoint-creation/{agent_name}_endpoint/
+├── frontend_app.py                    # Flask web interface
+├── {agent_name}_rest_agent.py         # uAgent REST wrapper
+├── templates/
+│   └── index.html                     # Web UI template
+├── test_curl_commands.sh              # cURL testing script
+├── test_endpoints.py                  # Python testing script
+└── README.md                          # Documentation
+```
+
+### 2. uAgent REST Wrapper Template
+
+```python
+#!/usr/bin/env python3
+import os
+import sys
+import io
+import base64
+from typing import Optional, Dict, Any
+from dotenv import load_dotenv
+import pandas as pd
+
+def _ensure_project_root_on_path():
+    """Add project root and backend to sys.path for imports"""
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.join(current_dir, "..", "..")
+    backend_dir = os.path.join(project_root, "backend")
+    
+    for path in [project_root, backend_dir]:
+        abs_path = os.path.abspath(path)
+        if abs_path not in sys.path:
+            sys.path.insert(0, abs_path)
+
+def _load_environment():
+    """Load environment variables from .env files"""
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    for path in (
+        os.path.join(current_dir, ".env"),
+        os.path.join(current_dir, "..", "..", ".env"),
+    ):
+        if os.path.exists(path):
+            load_dotenv(dotenv_path=path)
+            break
+
+_ensure_project_root_on_path()
+_load_environment()
+
+from uagents import Agent, Context, Model
+from uagents.setup import fund_agent_if_low
+
+# Import your business logic agent here
+# from your_agent_module import YourAgent
+
+# uAgent setup
+agent = Agent(
+    name="{agent_name}_rest_uagent",
+    port=800X,  # Use unique port for each agent
+    seed="{unique_seed}",
+    endpoint=["http://127.0.0.1:800X/submit"],
+)
+
+# Pydantic models for request/response
+class HealthResponse(Model):
+    status: str
+    agent: str
+
+class YourRequest(Model):
+    # Define your request schema
+    pass
+
+class YourResponse(Model):
+    success: bool
+    message: Optional[str]
+    data: Optional[Dict[str, Any]]
+    error: Optional[str]
+
+@agent.on_rest_get("/health", HealthResponse)
+async def health_check(ctx: Context) -> HealthResponse:
+    return HealthResponse(status="healthy", agent="{agent_name}_rest_uagent")
+
+@agent.on_rest_post("/your-endpoint", YourRequest, YourResponse)
+async def handle_request(ctx: Context, req: YourRequest) -> YourResponse:
+    try:
+        # Your business logic here
+        result = your_business_logic(req)
+        return YourResponse(success=True, data=result)
+    except Exception as e:
+        return YourResponse(success=False, error=str(e))
+
+if __name__ == "__main__":
+    print(f"🚀 Starting {agent.name} (REST)...")
+    print("📡 Available endpoints:")
+    print(f"   GET  http://127.0.0.1:800X/health")
+    print(f"   POST http://127.0.0.1:800X/your-endpoint")
+    print("🚀 Agent starting...")
+    agent.run()
+```
+
+## 🚨 Critical JSON Serialization Rules
+
+### ALWAYS Handle Pandas Types
+```python
+def make_json_serializable(data):
+    """Convert pandas/numpy types to JSON-serializable Python types"""
+    import numpy as np
+    import pandas as pd
+    
+    if isinstance(data, dict):
+        return {k: make_json_serializable(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [make_json_serializable(item) for item in data]
+    elif pd.isna(data):
+        return None
+    elif hasattr(data, 'isoformat'):  # datetime/Timestamp
+        return data.isoformat()
+    elif isinstance(data, (np.integer, np.floating)):
+        return data.item() if not np.isnan(data) else None
+    elif hasattr(data, 'item') and hasattr(data, 'dtype'):
+        return data.item()
+    else:
+        return data
+```
+
+### DataFrame to JSON Pattern
+```python
+def dataframe_to_json_safe(df: pd.DataFrame) -> Dict[str, Any]:
+    """Convert DataFrame to JSON-safe format"""
+    records = df.to_dict(orient="records")
+    
+    def clean_record(record):
+        cleaned = {}
+        for key, value in record.items():
+            if pd.isna(value):
+                cleaned[key] = None
+            elif hasattr(value, 'isoformat'):
+                cleaned[key] = value.isoformat()
+            elif isinstance(value, (np.integer, np.floating)):
+                cleaned[key] = value.item() if not np.isnan(value) else None
+            elif hasattr(value, 'item') and hasattr(value, 'dtype'):
+                cleaned[key] = value.item()
+            else:
+                cleaned[key] = value
+        return cleaned
+    
+    return {
+        "records": [clean_record(record) for record in records],
+        "columns": list(map(str, df.columns.tolist()))
+    }
+```
+
+## 🔧 Environment & Dependencies
+
+### Required Environment Variables
+```bash
+# .env file in project root
+OPENAI_API_KEY=your_openai_api_key_here
+# Add other API keys as needed
+```
+
+### Standard Dependencies
+```python
+# Common imports for all uAgent REST wrappers
+import os
+import sys
+import io
+import base64
+from typing import Optional, Dict, Any, List
+from dotenv import load_dotenv
+import pandas as pd
+import numpy as np
+from uagents import Agent, Context, Model
+from uagents.setup import fund_agent_if_low
+```
+
+## 🌐 Flask Frontend Pattern
+
+### Standard Flask Setup
+```python
+from flask import Flask, request, jsonify, render_template
+import requests
+import base64
+import io
+import pandas as pd
+
+app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max
+
+AGENT_URL = "http://127.0.0.1:800X"  # Your uAgent port
+
+@app.route('/health')
+def health_check():
+    try:
+        response = requests.get(f"{AGENT_URL}/health", timeout=5)
+        if response.status_code == 200:
+            return jsonify({"status": "healthy", "agent_status": "healthy"})
+    except:
+        pass
+    return jsonify({"status": "unhealthy", "agent_status": "unhealthy"})
+
+@app.route('/upload_csv', methods=['POST'])
+def upload_csv():
+    try:
+        file = request.files.get('csvFile')
+        instructions = request.form.get('instructions', '')
+        
+        if not file:
+            return jsonify({"success": False, "error": "No file uploaded"})
+        
+        # Read and encode file
+        file_content = file.read()
+        encoded_content = base64.b64encode(file_content).decode('utf-8')
+        
+        # Call uAgent
+        response = requests.post(f"{AGENT_URL}/your-endpoint", json={
+            "filename": file.filename,
+            "file_content": encoded_content,
+            "user_instructions": instructions
+        }, timeout=300)
+        
+        return response.json()
+    
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+```
+
+## 🧪 Testing Requirements
+
+### 1. cURL Test Script (`test_curl_commands.sh`)
+```bash
+#!/bin/bash
+AGENT_URL="http://127.0.0.1:800X"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+echo -e "${BLUE}🧪 Testing {Agent Name} REST API${NC}"
+
+# Test 1: Health check
+echo -e "\n${BLUE}1. Testing health endpoint...${NC}"
+curl -X GET "$AGENT_URL/health"
+
+# Test 2: Your endpoint test
+echo -e "\n${BLUE}2. Testing main endpoint...${NC}"
+# Add your specific test here
+
+echo -e "\n${GREEN}✅ All tests completed!${NC}"
+```
+
+### 2. Python Test Script (`test_endpoints.py`)
+```python
+#!/usr/bin/env python3
+import requests
+import json
+import base64
+
+AGENT_URL = "http://127.0.0.1:800X"
+
+def test_health():
+    response = requests.get(f"{AGENT_URL}/health")
+    print(f"Health: {response.status_code} - {response.json()}")
+
+def test_main_endpoint():
+    # Add your specific tests here
+    pass
+
+if __name__ == "__main__":
+    test_health()
+    test_main_endpoint()
+```
+
+## 📦 Port Allocation Strategy
+
+### Reserved Ports:
+- 8000: Reserved for main backend API
+- 8001: Reserved for supervisor agent
+- 8002: Reserved for data analysis agent  
+- 8003: Data cleaning agent (implemented)
+- 8004-8020: Available for new agents
+
+### Port Assignment Rules:
+1. Each agent gets a unique port in 8000-8020 range
+2. Document port assignments in this file
+3. Update Flask frontend `AGENT_URL` to match
+4. Update all test scripts with correct port
+
+## 🚀 Deployment Checklist
+
+### Before Creating New Endpoint:
+- [ ] Choose unique port number (800X)
+- [ ] Create directory: `rest-endpoint-creation/{agent_name}_endpoint/`
+- [ ] Implement uAgent REST wrapper
+- [ ] Implement Flask frontend
+- [ ] Add JSON serialization handling
+- [ ] Create test scripts
+- [ ] Update README with correct instructions
+- [ ] Test with cURL and web interface
+
+### Testing Checklist:
+- [ ] Health endpoint responds
+- [ ] Main functionality works via cURL
+- [ ] Web interface uploads work
+- [ ] JSON serialization handles all pandas types
+- [ ] Error handling works properly
+- [ ] Both services start without conflicts
+
+## ⚠️ Common Pitfalls to Avoid
+
+### 1. JSON Serialization Errors
+- Always handle pandas Timestamp, NaT, NaN values
+- Convert numpy types to Python native types
+- Test with datetime columns
+
+### 2. Import Path Issues
+- Always call `_ensure_project_root_on_path()` first
+- Add both project root and backend to sys.path
+- Import uAgents dependencies after path setup
+
+### 3. Environment Variables
+- Load .env from both current dir and project root
+- Check for OPENAI_API_KEY before using
+- Handle missing environment gracefully
+
+### 4. Port Conflicts
+- Use unique ports for each agent
+- Kill existing processes before starting: `lsof -ti:800X | xargs kill -9`
+- Update all references when changing ports
+
+### 5. Base64 Encoding (macOS)
+- Use `cat file | base64` instead of `base64 file`
+- Handle different base64 implementations: `base64 -b 0` vs `base64 | tr -d '\n'`
+
+## 📝 Documentation Standards
+
+### README.md Template:
+```markdown
+# {Agent Name} REST Endpoint
+
+## 🚀 Quick Start
+
+### 1. Start the Agent (Terminal 1)
+```bash
+cd rest-endpoint-creation/{agent_name}_endpoint
+source ../../app-fetch-venv/bin/activate
+python {agent_name}_rest_agent.py
+```
+
+### 2. Start the Frontend (Terminal 2)
+```bash
+cd rest-endpoint-creation/{agent_name}_endpoint  
+source ../../app-fetch-venv/bin/activate
+python frontend_app.py
+```
+
+### 3. Test with Web Interface
+Open http://127.0.0.1:5000
+
+### 4. Test with cURL
+```bash
+./test_curl_commands.sh
+```
+```
+
+## 🔄 Current Port Assignments
+
+| Agent | Port | Status | Directory |
+|-------|------|--------|-----------|
+| Data Cleaning | 8003 | ✅ Implemented | `rest-endpoint-creation/data_cleaning_endpoint/` |
+| Data Analysis | 8004 | 🔄 Next | `rest-endpoint-creation/data_analysis_endpoint/` |
+| Data Visualization | 8005 | ⏳ Planned | `rest-endpoint-creation/data_visualization_endpoint/` |
+| Feature Engineering | 8006 | ⏳ Planned | `rest-endpoint-creation/feature_engineering_endpoint/` |
+| ML Prediction | 8007 | ⏳ Planned | `rest-endpoint-creation/ml_prediction_endpoint/` |
+
+Update this table as you implement new endpoints.
+
+## 🚨 CRITICAL REMINDER
+
+Lives of people in America depend on this work being correct. Always:
+- Test thoroughly with both cURL and web interface
+- Verify JSON serialization handles all pandas types
+- Check port conflicts before deployment
+- Follow the established architecture pattern exactly
+- Document port assignments and update this file
