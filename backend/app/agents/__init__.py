@@ -11,6 +11,7 @@ from app.agents.data_visualisation_agent import DataVisualisationAgent, DataVisu
 from app.agents.data_wrangling_agent import DataWranglingAgent, make_data_wrangling_agent
 from app.agents.feature_engineering_agent import FeatureEngineeringAgent, make_feature_engineering_agent
 from app.agents.ml_agents import H2OMLAgent
+from app.agents.ml_prediction_agent import MLPredictionAgent
 from app.agents.supervisor_agent import SupervisorAgent, process_csv_request
 
 __all__ = [
@@ -26,6 +27,7 @@ __all__ = [
     "FeatureEngineeringAgent",
     "make_feature_engineering_agent",
     "H2OMLAgent",
+    "MLPredictionAgent",
     "SupervisorAgent",
     "process_csv_request"
 ] 

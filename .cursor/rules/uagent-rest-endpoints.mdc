@@ -8,47 +8,58 @@ alwaysApply: false
 
 ## 🎯 Core Architecture Pattern
 
-Follow the established pattern from `rest-endpoint-creation/data_cleaning_endpoint/`:
+Follow the established pattern from `rest-endpoint-creation/data_cleaning_endpoint/` and `backend/app/api/uagents/`:
 
 ```
-Frontend (Flask) → uAgent REST API → Business Logic Agent
+Frontend Application → Standalone uAgent REST API → Business Logic Agent
 ```
 
 ### Key Components:
-1. **Flask Frontend** (`frontend_app.py`) - Web interface on port 5000
-2. **uAgent REST Wrapper** (`{agent_name}_rest_agent.py`) - REST API on port 800X
-3. **Business Logic Agent** - The actual agent implementation
+1. **Standalone uAgent** (`{agent_name}_rest_agent.py`) - Complete uAgent on port 800X
+2. **Business Logic Agent** - The actual agent implementation (DataCleaningAgent, etc.)
+3. **Session Management** - In-memory store for rich result access
+
+### 🚨 CRITICAL: This is NOT FastAPI - This is Fetch.ai uAgents!
 
 ## 🔧 uAgent REST Endpoint Implementation
 
 ### 1. File Structure
 ```
-rest-endpoint-creation/{agent_name}_endpoint/
-├── frontend_app.py                    # Flask web interface
-├── {agent_name}_rest_agent.py         # uAgent REST wrapper
-├── templates/
-│   └── index.html                     # Web UI template
-├── test_curl_commands.sh              # cURL testing script
-├── test_endpoints.py                  # Python testing script
-└── README.md                          # Documentation
+backend/app/api/uagents/
+├── data_cleaning_rest_agent.py      # DataCleaningAgent uAgent (Port 8004) ✅
+├── data_loader_rest_agent.py        # DataLoaderToolsAgent uAgent (Port 8005) ✅  
+├── data_visualization_rest_agent.py # DataVisualisationAgent uAgent (Port 8006)
+├── feature_engineering_rest_agent.py# FeatureEngineeringAgent uAgent (Port 8007)
+├── h2o_ml_rest_agent.py             # H2OMLAgent uAgent (Port 8008)
+└── ml_prediction_rest_agent.py      # MLPredictionAgent uAgent (Port 8009)
 ```
 
-### 2. uAgent REST Wrapper Template
+### 🚨 Each file is a STANDALONE uAgent, NOT a FastAPI router!
+
+### 2. uAgent Implementation Template
 
 ```python
 #!/usr/bin/env python3
+"""
+{Agent Name} uAgent REST API.
+
+This uAgent provides comprehensive REST endpoints for the {Agent}Agent,
+exposing ALL agent capabilities with session-based result access.
+"""
+
 import os
 import sys
-import io
-import base64
-from typing import Optional, Dict, Any
+import uuid
+import time
+from typing import Optional, Dict, Any, List
 from dotenv import load_dotenv
 import pandas as pd
+import numpy as np
 
 def _ensure_project_root_on_path():
     """Add project root and backend to sys.path for imports"""
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.join(current_dir, "..", "..")
+    project_root = os.path.join(current_dir, "..", "..", "..", "..")
     backend_dir = os.path.join(project_root, "backend")
     
     for path in [project_root, backend_dir]:
@@ -61,7 +72,7 @@ def _load_environment():
     current_dir = os.path.dirname(os.path.abspath(__file__))
     for path in (
         os.path.join(current_dir, ".env"),
-        os.path.join(current_dir, "..", "..", ".env"),
+        os.path.join(current_dir, "..", "..", "..", "..", ".env"),
     ):
         if os.path.exists(path):
             load_dotenv(dotenv_path=path)
@@ -72,51 +83,97 @@ _load_environment()
 
 from uagents import Agent, Context, Model
 from uagents.setup import fund_agent_if_low
+from langchain_openai import ChatOpenAI
+from app.agents import YourAgent
 
-# Import your business logic agent here
-# from your_agent_module import YourAgent
+# Session management class
+class SessionStore:
+    def __init__(self):
+        self._sessions = {}
+    
+    def create_session(self, agent_instance, metadata=None):
+        session_id = str(uuid.uuid4())
+        self._sessions[session_id] = {
+            "agent": agent_instance,
+            "created_at": time.time(),
+            "metadata": metadata or {}
+        }
+        return session_id
+    
+    def get_session(self, session_id):
+        return self._sessions.get(session_id)
+
+# Global session store
+session_store = SessionStore()
+
+# JSON serialization utilities
+def make_json_serializable(data):
+    # ... (full implementation as shown in examples)
 
 # uAgent setup
 agent = Agent(
     name="{agent_name}_rest_uagent",
-    port=800X,  # Use unique port for each agent
-    seed="{unique_seed}",
+    port=800X,  # Unique port for each agent
+    seed="{agent_name}_rest_uagent_secret_seed",
     endpoint=["http://127.0.0.1:800X/submit"],
 )
 
-# Pydantic models for request/response
-class HealthResponse(Model):
-    status: str
-    agent: str
+fund_agent_if_low(agent.wallet.address())
 
-class YourRequest(Model):
-    # Define your request schema
-    pass
-
-class YourResponse(Model):
+# Pydantic models
+class SessionResponse(Model):
     success: bool
-    message: Optional[str]
-    data: Optional[Dict[str, Any]]
-    error: Optional[str]
+    message: str
+    session_id: str
+    execution_time_seconds: Optional[float] = None
+    error: Optional[str] = None
 
-@agent.on_rest_get("/health", HealthResponse)
-async def health_check(ctx: Context) -> HealthResponse:
-    return HealthResponse(status="healthy", agent="{agent_name}_rest_uagent")
-
-@agent.on_rest_post("/your-endpoint", YourRequest, YourResponse)
-async def handle_request(ctx: Context, req: YourRequest) -> YourResponse:
+@agent.on_rest_post("/your-main-operation", YourRequest, SessionResponse)
+async def your_main_operation(ctx: Context, req: YourRequest) -> SessionResponse:
+    """Main operation that creates session"""
     try:
-        # Your business logic here
-        result = your_business_logic(req)
-        return YourResponse(success=True, data=result)
+        start_time = time.time()
+        
+        # Create agent instance
+        your_agent = create_your_agent()
+        
+        # Execute main operation
+        your_agent.invoke_agent(...)
+        
+        execution_time = time.time() - start_time
+        
+        # Create session
+        session_id = session_store.create_session(
+            your_agent,
+            metadata={...}
+        )
+        
+        return SessionResponse(
+            success=True,
+            message="Operation completed successfully",
+            session_id=session_id,
+            execution_time_seconds=execution_time
+        )
+        
     except Exception as e:
-        return YourResponse(success=False, error=str(e))
+        return SessionResponse(
+            success=False,
+            message="Operation failed",
+            session_id="",
+            error=str(e)
+        )
+
+@agent.on_rest_get("/session/{session_id}/your-result", YourResultResponse)
+async def get_your_result(ctx: Context, session_id: str) -> YourResultResponse:
+    """Get specific result from session"""
+    # Implementation following session pattern
 
 if __name__ == "__main__":
-    print(f"🚀 Starting {agent.name} (REST)...")
+    print(f"🚀 Starting {agent.name}...")
     print("📡 Available endpoints:")
-    print(f"   GET  http://127.0.0.1:800X/health")
-    print(f"   POST http://127.0.0.1:800X/your-endpoint")
+    print("   GET  http://127.0.0.1:800X/health")
+    print("   POST http://127.0.0.1:800X/your-main-operation")
+    print("   GET  http://127.0.0.1:800X/session/{id}/your-result")
     print("🚀 Agent starting...")
     agent.run()
 ```
@@ -298,12 +355,18 @@ if __name__ == "__main__":
 
 ## 📦 Port Allocation Strategy
 
-### Reserved Ports:
+### Current Assignments:
 - 8000: Reserved for main backend API
 - 8001: Reserved for supervisor agent
 - 8002: Reserved for data analysis agent  
-- 8003: Data cleaning agent (implemented)
-- 8004-8020: Available for new agents
+- 8003: Data cleaning agent (rest-endpoint-creation/data_cleaning_endpoint/)
+- 8004: Data cleaning agent (backend/app/api/uagents/) ✅ 
+- 8005: Data loader agent (backend/app/api/uagents/) ✅
+- 8006: Data visualization agent (backend/app/api/uagents/) ⏳
+- 8007: Feature engineering agent (backend/app/api/uagents/) ⏳
+- 8008: H2O ML training agent (backend/app/api/uagents/) ⏳
+- 8009: ML prediction agent (backend/app/api/uagents/) ⏳
+- 8010-8020: Available for future agents
 
 ### Port Assignment Rules:
 1. Each agent gets a unique port in 8000-8020 range
