@@ -150,7 +150,9 @@ class HealthResponse(Model):
     agent: str
 
 class LoadFileRequest(Model):
-    file_path: str
+    file_path: Optional[str] = None
+    filename: Optional[str] = None
+    file_content: Optional[str] = None  # base64-encoded content
     user_instructions: Optional[str] = None
 
 class LoadDirectoryRequest(Model):
@@ -188,40 +190,127 @@ class GenericResponse(Model):
 
 @agent.on_rest_post("/load-file", LoadFileRequest, SessionResponse)
 async def load_file(ctx: Context, req: LoadFileRequest) -> SessionResponse:
-    """Load data from a file and create session"""
+    """Load data from a file path or base64 content and create session"""
     try:
         start_time = time.time()
+        
+        # Validate request parameters
+        if req.file_path and (req.filename or req.file_content):
+            return SessionResponse(
+                success=False,
+                message="Cannot specify both file_path and file_content parameters",
+                session_id="",
+                error="Ambiguous request: provide either file_path OR filename+file_content"
+            )
+        
+        if not req.file_path and not (req.filename and req.file_content):
+            return SessionResponse(
+                success=False,
+                message="Missing required parameters",
+                session_id="",
+                error="Must provide either file_path OR filename+file_content"
+            )
         
         # Create agent instance
         loader_agent = _create_data_loader_agent()
         
-        # Create instructions for the agent
-        instructions = f"Load the file from: {req.file_path}"
-        if req.user_instructions:
-            instructions += f"\n\nAdditional instructions: {req.user_instructions}"
-        
-        # Execute data loading
-        loader_agent.invoke_agent(user_instructions=instructions)
-        
-        execution_time = time.time() - start_time
-        
-        # Create session
-        session_id = session_store.create_session(
-            loader_agent,
-            metadata={
-                "operation": "load_file",
-                "file_path": req.file_path,
-                "user_instructions": req.user_instructions,
-                "execution_time": execution_time
-            }
-        )
-        
-        return SessionResponse(
-            success=True,
-            message=f"File loading completed successfully from {req.file_path}",
-            session_id=session_id,
-            execution_time_seconds=execution_time
-        )
+        if req.file_path:
+            # File path mode - existing logic
+            instructions = f"Load the file from: {req.file_path}"
+            if req.user_instructions:
+                instructions += f"\n\nAdditional instructions: {req.user_instructions}"
+            
+            # Execute data loading
+            loader_agent.invoke_agent(user_instructions=instructions)
+            
+            execution_time = time.time() - start_time
+            
+            # Create session
+            session_id = session_store.create_session(
+                loader_agent,
+                metadata={
+                    "operation": "load_file",
+                    "file_path": req.file_path,
+                    "user_instructions": req.user_instructions,
+                    "execution_time": execution_time
+                }
+            )
+            
+            return SessionResponse(
+                success=True,
+                message=f"File loading completed successfully from {req.file_path}",
+                session_id=session_id,
+                execution_time_seconds=execution_time
+            )
+            
+        else:
+            # Base64 content mode - decode and process directly
+            try:
+                decoded = base64.b64decode(req.file_content)
+                file_content = decoded.decode("utf-8", errors="replace")
+                
+                # Validate that it's not empty
+                if not file_content.strip():
+                    return SessionResponse(
+                        success=False,
+                        message="Empty file content",
+                        session_id="",
+                        error="File content is empty after decoding"
+                    )
+                
+                # Parse CSV content into DataFrame
+                df = pd.read_csv(io.StringIO(file_content))
+                
+                if df.empty:
+                    return SessionResponse(
+                        success=False,
+                        message="Empty file",
+                        session_id="",
+                        error="File contains no data rows"
+                    )
+                
+                # Create instructions for the agent
+                instructions = f"Process the uploaded data file"
+                if req.filename:
+                    instructions += f": {req.filename}"
+                if req.user_instructions:
+                    instructions += f"\n\nAdditional instructions: {req.user_instructions}"
+                
+                # Execute data loading with direct data (no file I/O)
+                loader_agent.invoke_agent(
+                    user_instructions=instructions,
+                    data_raw=df
+                )
+                
+                execution_time = time.time() - start_time
+                
+                # Create session
+                session_id = session_store.create_session(
+                    loader_agent,
+                    metadata={
+                        "operation": "load_file",
+                        "filename": req.filename,
+                        "user_instructions": req.user_instructions,
+                        "original_shape": list(df.shape),
+                        "direct_data_mode": True,
+                        "execution_time": execution_time
+                    }
+                )
+                
+                return SessionResponse(
+                    success=True,
+                    message=f"File loading completed successfully: {req.filename}",
+                    session_id=session_id,
+                    execution_time_seconds=execution_time
+                )
+                
+            except Exception as e:
+                return SessionResponse(
+                    success=False,
+                    message="Invalid file content",
+                    session_id="",
+                    error=f"Failed to process file content: {str(e)}"
+                )
         
     except Exception as e:
         return SessionResponse(
@@ -380,25 +469,35 @@ async def get_artifacts(ctx: Context, req: SessionRequest) -> DataResponse:
             error=str(e)
         )
 
-@agent.on_rest_get("/session/{session_id}/ai-message", GenericResponse)
-async def get_ai_message(ctx: Context, session_id: str) -> GenericResponse:
+@agent.on_rest_post("/get-ai-message", SessionRequest, GenericResponse)
+async def get_ai_message(ctx: Context, req: SessionRequest) -> GenericResponse:
     """Get AI message from session"""
     try:
-        session = session_store.get_session(session_id)
+        session = session_store.get_session(req.session_id)
         if not session:
             return GenericResponse(
                 success=False,
                 message="Session not found",
-                error=f"Session {session_id} not found or expired"
+                error=f"Session {req.session_id} not found or expired"
             )
         
         loader_agent = session["agent"]
         ai_message = loader_agent.get_ai_message()
         
+        # Convert AIMessage to serializable format
+        if hasattr(ai_message, 'content'):
+            serializable_message = {
+                "type": getattr(ai_message, 'type', 'ai'),
+                "content": ai_message.content,
+                "id": getattr(ai_message, 'id', None)
+            }
+        else:
+            serializable_message = str(ai_message) if ai_message else "No AI message available"
+        
         return GenericResponse(
             success=True,
             message="AI message retrieved successfully",
-            data=ai_message
+            data=serializable_message
         )
         
     except Exception as e:
@@ -408,16 +507,16 @@ async def get_ai_message(ctx: Context, session_id: str) -> GenericResponse:
             error=str(e)
         )
 
-@agent.on_rest_get("/session/{session_id}/tool-calls", GenericResponse)
-async def get_tool_calls(ctx: Context, session_id: str) -> GenericResponse:
+@agent.on_rest_post("/get-tool-calls", SessionRequest, GenericResponse)
+async def get_tool_calls(ctx: Context, req: SessionRequest) -> GenericResponse:
     """Get tool calls from session"""
     try:
-        session = session_store.get_session(session_id)
+        session = session_store.get_session(req.session_id)
         if not session:
             return GenericResponse(
                 success=False,
                 message="Session not found",
-                error=f"Session {session_id} not found or expired"
+                error=f"Session {req.session_id} not found or expired"
             )
         
         loader_agent = session["agent"]
@@ -436,16 +535,16 @@ async def get_tool_calls(ctx: Context, session_id: str) -> GenericResponse:
             error=str(e)
         )
 
-@agent.on_rest_get("/session/{session_id}/internal-messages", GenericResponse)
-async def get_internal_messages(ctx: Context, session_id: str) -> GenericResponse:
+@agent.on_rest_post("/get-internal-messages", SessionRequest, GenericResponse)
+async def get_internal_messages(ctx: Context, req: SessionRequest) -> GenericResponse:
     """Get internal messages from session"""
     try:
-        session = session_store.get_session(session_id)
+        session = session_store.get_session(req.session_id)
         if not session:
             return GenericResponse(
                 success=False,
                 message="Session not found",
-                error=f"Session {session_id} not found or expired"
+                error=f"Session {req.session_id} not found or expired"
             )
         
         loader_agent = session["agent"]
@@ -480,16 +579,16 @@ async def get_internal_messages(ctx: Context, session_id: str) -> GenericRespons
             error=str(e)
         )
 
-@agent.on_rest_get("/session/{session_id}/full-response", GenericResponse)
-async def get_full_response(ctx: Context, session_id: str) -> GenericResponse:
+@agent.on_rest_post("/get-full-response", SessionRequest, GenericResponse)
+async def get_full_response(ctx: Context, req: SessionRequest) -> GenericResponse:
     """Get complete agent response from session"""
     try:
-        session = session_store.get_session(session_id)
+        session = session_store.get_session(req.session_id)
         if not session:
             return GenericResponse(
                 success=False,
                 message="Session not found",
-                error=f"Session {session_id} not found or expired"
+                error=f"Session {req.session_id} not found or expired"
             )
         
         loader_agent = session["agent"]
@@ -593,6 +692,7 @@ if __name__ == "__main__":
     print("   POST http://127.0.0.1:8005/load-directory")
     print("   POST http://127.0.0.1:8005/extract-pdf")
     print("   POST http://127.0.0.1:8005/get-artifacts")
+    print("   GET  http://127.0.0.1:8005/session/{id}/data")
     print("   GET  http://127.0.0.1:8005/session/{id}/ai-message")
     print("   GET  http://127.0.0.1:8005/session/{id}/tool-calls")
     print("   GET  http://127.0.0.1:8005/session/{id}/internal-messages")
