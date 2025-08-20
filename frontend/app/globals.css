@@ -1,0 +1,113 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Brand colors from specification */
+  --color-primary: #1e40af; /* Deep blue */
+  --color-secondary: #059669; /* Emerald */
+  --color-accent: #f59e0b; /* Amber */
+  
+  /* Font families */
+  --font-inter: Inter, sans-serif;
+  --font-jetbrains-mono: JetBrains Mono, monospace;
+}
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    --primary: 213 94% 50%; /* #1e40af */
+    --primary-foreground: 210 40% 98%;
+    --secondary: 160 94% 38%; /* #059669 */
+    --secondary-foreground: 222.2 84% 4.9%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 40 90% 50%; /* #f59e0b */
+    --accent-foreground: 222.2 84% 4.9%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 213 94% 50%;
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 213 94% 50%;
+    --primary-foreground: 222.2 84% 4.9%;
+    --secondary: 160 94% 38%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 40 90% 50%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 213 94% 50%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* Code highlighting */
+.code-highlight {
+  @apply font-mono text-sm;
+}
+
+/* Plotly chart containers */
+.plotly-chart {
+  @apply w-full h-full;
+}
+
+/* Agent workspace forms */
+.agent-form {
+  @apply space-y-6;
+}
+
+/* Session tabs */
+.session-tabs {
+  @apply w-full;
+}
+
+/* Data table styling */
+.data-table {
+  @apply w-full border-collapse border border-border;
+}
+
+.data-table th,
+.data-table td {
+  @apply border border-border px-4 py-2 text-left;
+}
+
+.data-table th {
+  @apply bg-muted font-medium;
+}
+
+/* Progress indicators */
+.progress-bar {
+  @apply relative w-full overflow-hidden rounded-full bg-muted;
+}
+
+.progress-fill {
+  @apply h-full bg-primary transition-all duration-300 ease-in-out;
+}
