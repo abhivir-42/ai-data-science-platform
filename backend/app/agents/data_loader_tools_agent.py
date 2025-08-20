@@ -186,22 +186,26 @@ class DataLoaderToolsAgent(BaseAgent):
     
     def invoke_agent(
         self, 
-        user_instructions: str = None, 
+        user_instructions: str = None,
+        data_raw: pd.DataFrame = None,
         **kwargs
     ):
         """
-        Runs the agent with the given user instructions.
+        Runs the agent with the given user instructions and optional data.
         
         Parameters
         ----------
         user_instructions : str, optional
             The user instructions to pass to the agent.
+        data_raw : pd.DataFrame, optional
+            Raw data to process directly (bypasses file loading tools).
         **kwargs
             Additional keyword arguments to pass to the agent's invoke method.
         """
         response = self._compiled_graph.invoke(
             {
                 "user_instructions": user_instructions,
+                "data_raw": data_raw.to_dict() if data_raw is not None else None,
             },
             **kwargs
         )
@@ -368,6 +372,7 @@ def make_data_loader_tools_agent(
     class GraphState(AgentState):
         internal_messages: Annotated[Sequence[BaseMessage], operator.add]
         user_instructions: str
+        data_raw: Optional[Dict[str, Any]]
         data_loader_artifacts: dict
         tool_calls: List[str]
     
@@ -387,6 +392,38 @@ def make_data_loader_tools_agent(
         """
         print(format_agent_name(AGENT_NAME))
         print("    ")
+        
+        # Check if data is provided directly (bypass tools)
+        if state.get("data_raw") is not None:
+            print("    * PROCESSING PROVIDED DATA DIRECTLY")
+            
+            # Convert data back to DataFrame
+            data_dict = state["data_raw"]
+            df = pd.DataFrame.from_dict(data_dict)
+            
+            print(f"    * Data shape: {df.shape}")
+            print(f"    * Columns: {list(df.columns)}")
+            
+            # Create artifacts directly from the provided data
+            artifacts = {
+                "data": df.to_dict('records'),
+                "columns": list(df.columns),
+                "shape": list(df.shape),
+                "dtypes": df.dtypes.to_dict(),
+                "info": {
+                    "memory_usage": df.memory_usage().sum(),
+                    "null_values": df.isnull().sum().to_dict()
+                }
+            }
+            
+            # Create a simple AI message response
+            ai_message = AIMessage(content=f"Successfully processed uploaded data with {df.shape[0]} rows and {df.shape[1]} columns.")
+            
+            return {
+                "internal_messages": [ai_message],
+                "data_loader_artifacts": artifacts,
+                "tool_calls": ["direct_data_processing"],
+            }
         
         print("    * RUN REACT TOOL-CALLING AGENT")
         
