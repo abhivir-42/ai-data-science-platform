@@ -165,9 +165,9 @@ class CleanResponse(Model):
 
 agent = Agent(
     name="data_cleaning_agent",
-    port=8003,
+    port=8004,
     seed="data_cleaning_agent_secret_seed",
-    endpoint=["http://127.0.0.1:8003/submit"],
+    endpoint=["http://127.0.0.1:8004/submit"],
 )
 
 # Fund if required (no-op locally, safe to call)
@@ -215,9 +215,9 @@ async def handle_clean_data(ctx: Context, req: CleanDataRequest) -> CleanRespons
 if __name__ == "__main__":
     print("🧹 Starting Data Cleaning uAgent (REST)...")
     print("📡 Available endpoints:")
-    print("   GET  http://127.0.0.1:8003/health")
-    print("   POST http://127.0.0.1:8003/clean-csv")
-    print("   POST http://127.0.0.1:8003/clean-data")
+    print("   GET  http://127.0.0.1:8004/health")
+    print("   POST http://127.0.0.1:8004/clean-csv")
+    print("   POST http://127.0.0.1:8004/clean-data")
     print("🚀 Agent starting...")
     agent.run()
 
