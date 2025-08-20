@@ -148,6 +148,9 @@ out/
 # Production build
 /build
 
+# TypeScript
+*.tsbuildinfo
+
 # Miscellaneous
 .DS_Store
 .env.local
