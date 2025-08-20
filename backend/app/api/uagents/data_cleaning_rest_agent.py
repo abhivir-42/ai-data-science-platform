@@ -63,6 +63,7 @@ class SessionStore:
     def __init__(self):
         self._sessions = {}
         self._session_timeout_hours = 24
+        print(f"[SessionStore] Initialized session store")
     
     def create_session(self, agent_instance, metadata=None):
         session_id = str(uuid.uuid4())
@@ -71,16 +72,26 @@ class SessionStore:
             "created_at": time.time(),
             "metadata": metadata or {}
         }
+        print(f"[SessionStore] Created session {session_id}. Total sessions: {len(self._sessions)}")
         return session_id
     
     def get_session(self, session_id):
-        return self._sessions.get(session_id)
+        session = self._sessions.get(session_id)
+        print(f"[SessionStore] Get session {session_id}: {'Found' if session else 'Not found'}. Total sessions: {len(self._sessions)}")
+        if not session:
+            print(f"[SessionStore] Available sessions: {list(self._sessions.keys())}")
+        return session
     
     def delete_session(self, session_id):
         if session_id in self._sessions:
             del self._sessions[session_id]
+            print(f"[SessionStore] Deleted session {session_id}. Total sessions: {len(self._sessions)}")
             return True
         return False
+    
+    def list_sessions(self):
+        """Debug method to list all sessions"""
+        return list(self._sessions.keys())
 
 # Global session store
 session_store = SessionStore()
@@ -160,6 +171,7 @@ class CleanCsvRequest(Model):
     file_content: str  # base64-encoded CSV
     user_instructions: Optional[str] = None
     max_retries: int = 3
+    advanced_options: Optional[Dict[str, Any]] = None
 
 class SessionResponse(Model):
     success: bool
@@ -362,16 +374,16 @@ async def get_cleaned_data(ctx: Context, req: SessionRequest) -> DataResponse:
             error=str(e)
         )
 
-@agent.on_rest_get("/session/{session_id}/original-data", DataResponse)
-async def get_original_data(ctx: Context, session_id: str) -> DataResponse:
+@agent.on_rest_post("/get-original-data", SessionRequest, DataResponse)
+async def get_original_data(ctx: Context, req: SessionRequest) -> DataResponse:
     """Get original dataset from session"""
     try:
-        session = session_store.get_session(session_id)
+        session = session_store.get_session(req.session_id)
         if not session:
             return DataResponse(
                 success=False,
                 message="Session not found",
-                error=f"Session {session_id} not found or expired"
+                error=f"Session {req.session_id} not found or expired"
             )
         
         cleaning_agent = session["agent"]
@@ -399,16 +411,16 @@ async def get_original_data(ctx: Context, session_id: str) -> DataResponse:
             error=str(e)
         )
 
-@agent.on_rest_get("/session/{session_id}/cleaning-function", CodeResponse)
-async def get_cleaning_function(ctx: Context, session_id: str) -> CodeResponse:
+@agent.on_rest_post("/get-cleaning-function", SessionRequest, CodeResponse)
+async def get_cleaning_function(ctx: Context, req: SessionRequest) -> CodeResponse:
     """Get generated Python cleaning function from session"""
     try:
-        session = session_store.get_session(session_id)
+        session = session_store.get_session(req.session_id)
         if not session:
             return CodeResponse(
                 success=False,
                 message="Session not found",
-                error=f"Session {session_id} not found or expired"
+                error=f"Session {req.session_id} not found or expired"
             )
         
         cleaning_agent = session["agent"]
@@ -435,16 +447,16 @@ async def get_cleaning_function(ctx: Context, session_id: str) -> CodeResponse:
             error=str(e)
         )
 
-@agent.on_rest_get("/session/{session_id}/cleaning-steps", GenericResponse)
-async def get_cleaning_steps(ctx: Context, session_id: str) -> GenericResponse:
+@agent.on_rest_post("/get-cleaning-steps", SessionRequest, GenericResponse)
+async def get_cleaning_steps(ctx: Context, req: SessionRequest) -> GenericResponse:
     """Get recommended cleaning steps from session"""
     try:
-        session = session_store.get_session(session_id)
+        session = session_store.get_session(req.session_id)
         if not session:
             return GenericResponse(
                 success=False,
                 message="Session not found",
-                error=f"Session {session_id} not found or expired"
+                error=f"Session {req.session_id} not found or expired"
             )
         
         cleaning_agent = session["agent"]
@@ -472,7 +484,7 @@ async def get_workflow_summary(ctx: Context, session_id: str) -> GenericResponse
             return GenericResponse(
                 success=False,
                 message="Session not found",
-                error=f"Session {session_id} not found or expired"
+                error=f"Session {req.session_id} not found or expired"
             )
         
         cleaning_agent = session["agent"]
@@ -491,16 +503,16 @@ async def get_workflow_summary(ctx: Context, session_id: str) -> GenericResponse
             error=str(e)
         )
 
-@agent.on_rest_get("/session/{session_id}/logs", GenericResponse)
-async def get_logs(ctx: Context, session_id: str) -> GenericResponse:
+@agent.on_rest_post("/get-logs", SessionRequest, GenericResponse)
+async def get_logs(ctx: Context, req: SessionRequest) -> GenericResponse:
     """Get execution logs from session"""
     try:
-        session = session_store.get_session(session_id)
+        session = session_store.get_session(req.session_id)
         if not session:
             return GenericResponse(
                 success=False,
                 message="Session not found",
-                error=f"Session {session_id} not found or expired"
+                error=f"Session {req.session_id} not found or expired"
             )
         
         cleaning_agent = session["agent"]
@@ -528,7 +540,7 @@ async def get_full_response(ctx: Context, session_id: str) -> GenericResponse:
             return GenericResponse(
                 success=False,
                 message="Session not found",
-                error=f"Session {session_id} not found or expired"
+                error=f"Session {req.session_id} not found or expired"
             )
         
         cleaning_agent = session["agent"]
@@ -560,6 +572,16 @@ async def health_check(ctx: Context) -> HealthResponse:
     return HealthResponse(
         status="healthy",
         agent="data_cleaning_rest_uagent"
+    )
+
+@agent.on_rest_get("/debug/sessions", GenericResponse)
+async def debug_sessions(ctx: Context) -> GenericResponse:
+    """Debug endpoint to list all sessions"""
+    sessions = session_store.list_sessions()
+    return GenericResponse(
+        success=True,
+        message=f"Found {len(sessions)} sessions",
+        data={"sessions": sessions, "count": len(sessions)}
     )
 
 class DeleteSessionRequest(Model):
