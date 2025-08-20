@@ -564,8 +564,83 @@ async def health_check(ctx: Context) -> HealthResponse:
         agent="feature_engineering_rest_uagent"
     )
 
+class SessionRequest(Model):
+    session_id: str
+
 class DeleteSessionRequest(Model):
     session_id: str
+
+# ============================================================================
+# POST Session Access Endpoints (Working)
+# ============================================================================
+
+@agent.on_rest_post("/get-engineering-function", SessionRequest, CodeResponse)
+async def get_engineering_function_post(ctx: Context, req: SessionRequest) -> CodeResponse:
+    """Get engineering function from session (POST version)"""
+    try:
+        session = session_store.get_session(req.session_id)
+        if not session:
+            return CodeResponse(
+                success=False,
+                message="Session not found",
+                error=f"Session {req.session_id} not found or expired"
+            )
+        
+        eng_agent = session["agent"]
+        
+        if eng_agent.response and "feature_engineering_function" in eng_agent.response:
+            return CodeResponse(
+                success=True,
+                message="Engineering function retrieved successfully",
+                generated_code=eng_agent.response["feature_engineering_function"]
+            )
+        
+        return CodeResponse(
+            success=False,
+            message="No engineering function available",
+            error="No generated code found in session"
+        )
+        
+    except Exception as e:
+        return CodeResponse(
+            success=False,
+            message="Failed to retrieve engineering function",
+            error=str(e)
+        )
+
+@agent.on_rest_post("/get-engineering-steps", SessionRequest, GenericResponse)
+async def get_engineering_steps_post(ctx: Context, req: SessionRequest) -> GenericResponse:
+    """Get engineering recommendations from session (POST version)"""
+    try:
+        session = session_store.get_session(req.session_id)
+        if not session:
+            return GenericResponse(
+                success=False,
+                message="Session not found",
+                error=f"Session {req.session_id} not found or expired"
+            )
+        
+        eng_agent = session["agent"]
+        
+        if eng_agent.response and "engineering_steps" in eng_agent.response:
+            return GenericResponse(
+                success=True,
+                message="Engineering steps retrieved successfully",
+                data=eng_agent.response["engineering_steps"]
+            )
+        
+        return GenericResponse(
+            success=False,
+            message="No engineering steps available",
+            error="No recommendations found in session"
+        )
+        
+    except Exception as e:
+        return GenericResponse(
+            success=False,
+            message="Failed to retrieve engineering steps",
+            error=str(e)
+        )
 
 @agent.on_rest_post("/delete-session", DeleteSessionRequest, GenericResponse)
 async def delete_session(ctx: Context, req: DeleteSessionRequest) -> GenericResponse:

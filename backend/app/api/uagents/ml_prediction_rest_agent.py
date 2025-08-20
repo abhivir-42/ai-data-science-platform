@@ -606,8 +606,49 @@ async def health_check(ctx: Context) -> HealthResponse:
         agent="ml_prediction_rest_uagent"
     )
 
+class SessionRequest(Model):
+    session_id: str
+
 class DeleteSessionRequest(Model):
     session_id: str
+
+# ============================================================================
+# POST Session Access Endpoints (Working)
+# ============================================================================
+
+@agent.on_rest_post("/get-model-analysis", SessionRequest, ModelAnalysisResponse)
+async def get_model_analysis_post(ctx: Context, req: SessionRequest) -> ModelAnalysisResponse:
+    """Get model analysis from session (POST version)"""
+    try:
+        session = session_store.get_session(req.session_id)
+        if not session:
+            return ModelAnalysisResponse(
+                success=False,
+                message="Session not found",
+                error=f"Session {req.session_id} not found or expired"
+            )
+        
+        pred_agent = session["agent"]
+        
+        if pred_agent.response and "model_analysis" in pred_agent.response:
+            return ModelAnalysisResponse(
+                success=True,
+                message="Model analysis retrieved successfully",
+                analysis=pred_agent.response["model_analysis"]
+            )
+        
+        return ModelAnalysisResponse(
+            success=False,
+            message="No model analysis available",
+            error="No analysis found in session"
+        )
+        
+    except Exception as e:
+        return ModelAnalysisResponse(
+            success=False,
+            message="Failed to retrieve model analysis",
+            error=str(e)
+        )
 
 @agent.on_rest_post("/delete-session", DeleteSessionRequest, GenericResponse)
 async def delete_session(ctx: Context, req: DeleteSessionRequest) -> GenericResponse:

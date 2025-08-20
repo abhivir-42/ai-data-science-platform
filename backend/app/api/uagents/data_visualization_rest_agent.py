@@ -569,8 +569,119 @@ async def health_check(ctx: Context) -> HealthResponse:
         agent="data_visualization_rest_uagent"
     )
 
+class SessionRequest(Model):
+    session_id: str
+
 class DeleteSessionRequest(Model):
     session_id: str
+
+# ============================================================================
+# POST Session Access Endpoints (Working)
+# ============================================================================
+
+@agent.on_rest_post("/get-plotly-graph", SessionRequest, ChartResponse)
+async def get_plotly_graph_post(ctx: Context, req: SessionRequest) -> ChartResponse:
+    """Get Plotly graph from session (POST version)"""
+    try:
+        session = session_store.get_session(req.session_id)
+        if not session:
+            return ChartResponse(
+                success=False,
+                message="Session not found",
+                error=f"Session {req.session_id} not found or expired"
+            )
+        
+        viz_agent = session["agent"]
+        
+        if viz_agent.response and "plotly_graph" in viz_agent.response:
+            plotly_graph = viz_agent.response["plotly_graph"]
+            if plotly_graph:
+                return ChartResponse(
+                    success=True,
+                    message="Chart retrieved successfully",
+                    figure=plotly_graph
+                )
+        
+        return ChartResponse(
+            success=False,
+            message="No chart available",
+            error="No chart artifacts found in session"
+        )
+        
+    except Exception as e:
+        return ChartResponse(
+            success=False,
+            message="Failed to retrieve chart",
+            error=str(e)
+        )
+
+@agent.on_rest_post("/get-visualization-function", SessionRequest, CodeResponse)
+async def get_visualization_function_post(ctx: Context, req: SessionRequest) -> CodeResponse:
+    """Get visualization function from session (POST version)"""
+    try:
+        session = session_store.get_session(req.session_id)
+        if not session:
+            return CodeResponse(
+                success=False,
+                message="Session not found",
+                error=f"Session {req.session_id} not found or expired"
+            )
+        
+        viz_agent = session["agent"]
+        
+        if viz_agent.response and "data_visualization_function" in viz_agent.response:
+            return CodeResponse(
+                success=True,
+                message="Visualization function retrieved successfully",
+                generated_code=viz_agent.response["data_visualization_function"]
+            )
+        
+        return CodeResponse(
+            success=False,
+            message="No visualization function available",
+            error="No generated code found in session"
+        )
+        
+    except Exception as e:
+        return CodeResponse(
+            success=False,
+            message="Failed to retrieve visualization function",
+            error=str(e)
+        )
+
+@agent.on_rest_post("/get-visualization-steps", SessionRequest, GenericResponse)
+async def get_visualization_steps_post(ctx: Context, req: SessionRequest) -> GenericResponse:
+    """Get visualization recommendations from session (POST version)"""
+    try:
+        session = session_store.get_session(req.session_id)
+        if not session:
+            return GenericResponse(
+                success=False,
+                message="Session not found",
+                error=f"Session {req.session_id} not found or expired"
+            )
+        
+        viz_agent = session["agent"]
+        
+        if viz_agent.response and "recommended_steps" in viz_agent.response:
+            return GenericResponse(
+                success=True,
+                message="Visualization steps retrieved successfully",
+                data=viz_agent.response["recommended_steps"]
+            )
+        
+        return GenericResponse(
+            success=False,
+            message="No visualization steps available",
+            error="No recommendations found in session"
+        )
+        
+    except Exception as e:
+        return GenericResponse(
+            success=False,
+            message="Failed to retrieve visualization steps",
+            error=str(e)
+        )
 
 @agent.on_rest_post("/delete-session", DeleteSessionRequest, GenericResponse)
 async def delete_session(ctx: Context, req: DeleteSessionRequest) -> GenericResponse:

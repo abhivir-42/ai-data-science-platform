@@ -706,8 +706,117 @@ async def health_check(ctx: Context) -> HealthResponse:
         agent="h2o_ml_rest_uagent"
     )
 
+class SessionRequest(Model):
+    session_id: str
+
 class DeleteSessionRequest(Model):
     session_id: str
+
+# ============================================================================
+# POST Session Access Endpoints (Working)
+# ============================================================================
+
+@agent.on_rest_post("/get-leaderboard", SessionRequest, LeaderboardResponse)
+async def get_leaderboard_post(ctx: Context, req: SessionRequest) -> LeaderboardResponse:
+    """Get leaderboard from session (POST version)"""
+    try:
+        session = session_store.get_session(req.session_id)
+        if not session:
+            return LeaderboardResponse(
+                success=False,
+                message="Session not found",
+                error=f"Session {req.session_id} not found or expired"
+            )
+        
+        ml_agent = session["agent"]
+        
+        if ml_agent.response and "leaderboard" in ml_agent.response:
+            return LeaderboardResponse(
+                success=True,
+                message="Leaderboard retrieved successfully",
+                leaderboard=ml_agent.response["leaderboard"]
+            )
+        
+        return LeaderboardResponse(
+            success=False,
+            message="No leaderboard available",
+            error="No leaderboard found in session"
+        )
+        
+    except Exception as e:
+        return LeaderboardResponse(
+            success=False,
+            message="Failed to retrieve leaderboard",
+            error=str(e)
+        )
+
+@agent.on_rest_post("/get-training-function", SessionRequest, CodeResponse)
+async def get_training_function_post(ctx: Context, req: SessionRequest) -> CodeResponse:
+    """Get training function from session (POST version)"""
+    try:
+        session = session_store.get_session(req.session_id)
+        if not session:
+            return CodeResponse(
+                success=False,
+                message="Session not found",
+                error=f"Session {req.session_id} not found or expired"
+            )
+        
+        ml_agent = session["agent"]
+        
+        if ml_agent.response and "training_function" in ml_agent.response:
+            return CodeResponse(
+                success=True,
+                message="Training function retrieved successfully",
+                generated_code=ml_agent.response["training_function"]
+            )
+        
+        return CodeResponse(
+            success=False,
+            message="No training function available",
+            error="No generated code found in session"
+        )
+        
+    except Exception as e:
+        return CodeResponse(
+            success=False,
+            message="Failed to retrieve training function",
+            error=str(e)
+        )
+
+@agent.on_rest_post("/get-ml-steps", SessionRequest, GenericResponse)
+async def get_ml_steps_post(ctx: Context, req: SessionRequest) -> GenericResponse:
+    """Get ML recommendations from session (POST version)"""
+    try:
+        session = session_store.get_session(req.session_id)
+        if not session:
+            return GenericResponse(
+                success=False,
+                message="Session not found",
+                error=f"Session {req.session_id} not found or expired"
+            )
+        
+        ml_agent = session["agent"]
+        
+        if ml_agent.response and "ml_steps" in ml_agent.response:
+            return GenericResponse(
+                success=True,
+                message="ML steps retrieved successfully",
+                data=ml_agent.response["ml_steps"]
+            )
+        
+        return GenericResponse(
+            success=False,
+            message="No ML steps available",
+            error="No recommendations found in session"
+        )
+        
+    except Exception as e:
+        return GenericResponse(
+            success=False,
+            message="Failed to retrieve ML steps",
+            error=str(e)
+        )
 
 @agent.on_rest_post("/delete-session", DeleteSessionRequest, GenericResponse)
 async def delete_session(ctx: Context, req: DeleteSessionRequest) -> GenericResponse:
