@@ -20,6 +20,7 @@ import io
 import base64
 import uuid
 import time
+import requests
 from typing import Optional, Dict, Any, List
 from dotenv import load_dotenv
 import pandas as pd
@@ -173,6 +174,12 @@ class CleanCsvRequest(Model):
     max_retries: int = 3
     advanced_options: Optional[Dict[str, Any]] = None
 
+class CleanFromSessionRequest(Model):
+    session_id: str  # Session ID from data loader
+    user_instructions: Optional[str] = None
+    max_retries: int = 3
+    advanced_options: Optional[Dict[str, Any]] = None
+
 class SessionResponse(Model):
     success: bool
     message: str
@@ -322,6 +329,109 @@ async def clean_csv(ctx: Context, req: CleanCsvRequest) -> SessionResponse:
         return SessionResponse(
             success=False,
             message="CSV cleaning failed",
+            session_id="",
+            error=str(e)
+        )
+
+@agent.on_rest_post("/clean-from-session", CleanFromSessionRequest, SessionResponse)
+async def clean_from_session(ctx: Context, req: CleanFromSessionRequest) -> SessionResponse:
+    """Clean data from a previous data loader session"""
+    try:
+        start_time = time.time()
+        
+        # Fetch data from the data loader session
+        data_loader_url = "http://127.0.0.1:8005"
+        
+        try:
+            response = requests.post(
+                f"{data_loader_url}/get-artifacts",
+                json={"session_id": req.session_id, "as_dataframe": True},
+                timeout=30
+            )
+            
+            if not response.ok:
+                return SessionResponse(
+                    success=False,
+                    message="Failed to fetch data from session",
+                    session_id="",
+                    error=f"Data loader request failed: {response.status_code} {response.text}"
+                )
+                
+            loader_result = response.json()
+            
+            if not loader_result.get("success", False):
+                return SessionResponse(
+                    success=False,
+                    message="Failed to retrieve data from session",
+                    session_id="",
+                    error=loader_result.get("error", "Unknown error from data loader")
+                )
+                
+            # Extract DataFrame data
+            data_dict = loader_result.get("data", {})
+            if not data_dict or "records" not in data_dict:
+                return SessionResponse(
+                    success=False,
+                    message="No data found in session",
+                    session_id="",
+                    error="Session contains no usable data"
+                )
+                
+            # Convert to DataFrame
+            df = pd.DataFrame(data_dict["records"])
+            
+        except requests.RequestException as e:
+            return SessionResponse(
+                success=False,
+                message="Cannot connect to data loader service",
+                session_id="",
+                error=f"Network error: {str(e)}"
+            )
+        
+        if df.empty:
+            return SessionResponse(
+                success=False,
+                message="Empty dataset in session",
+                session_id="",
+                error="Session contains no data rows"
+            )
+        
+        # Create agent instance
+        cleaning_agent = _create_data_cleaning_agent()
+        
+        # Execute data cleaning
+        cleaning_agent.invoke_agent(
+            data_raw=df,
+            user_instructions=req.user_instructions,
+            max_retries=req.max_retries
+        )
+        
+        execution_time = time.time() - start_time
+        
+        # Create session
+        session_id = session_store.create_session(
+            cleaning_agent,
+            metadata={
+                "operation": "clean_from_session",
+                "source_session_id": req.session_id,
+                "user_instructions": req.user_instructions,
+                "advanced_options": req.advanced_options,
+                "original_shape": list(df.shape),
+                "execution_time": execution_time
+            }
+        )
+        
+        return SessionResponse(
+            success=True,
+            message="Data cleaning from session completed successfully",
+            session_id=session_id,
+            execution_time_seconds=execution_time
+        )
+        
+    except Exception as e:
+        return SessionResponse(
+            success=False,
+            message="Session-based data cleaning failed",
             session_id="",
             error=str(e)
         )
@@ -622,6 +732,7 @@ if __name__ == "__main__":
     print("   GET  http://127.0.0.1:8004/health")
     print("   POST http://127.0.0.1:8004/clean-data")
     print("   POST http://127.0.0.1:8004/clean-csv")
+    print("   POST http://127.0.0.1:8004/clean-from-session")
     print("   POST http://127.0.0.1:8004/get-cleaned-data")
     print("   GET  http://127.0.0.1:8004/session/{id}/original-data")
     print("   GET  http://127.0.0.1:8004/session/{id}/cleaning-function")

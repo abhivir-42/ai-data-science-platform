@@ -292,7 +292,7 @@ export class UAgentClient {
   // Data Cleaning operations (8004)
   async cleanData(params: CleanDataParams): Promise<SessionResponse> {
     if (params.session_id) {
-      return this.request<SessionResponse>('/clean-data', params);
+      return this.request<SessionResponse>('/clean-from-session', params);
     } else {
       return this.request<SessionResponse>('/clean-csv', params);
     }
@@ -357,7 +357,7 @@ export class UAgentClient {
       case 'engineering':
         return this.request<DataResponse>('/get-session-data', { session_id: sessionId });
       case 'training':
-        return this.getSessionResult<DataResponse>(`/session/${sessionId}/original-data`);
+        return this.request<DataResponse>('/get-original-data', { session_id: sessionId });
       case 'prediction':
         return this.request<DataResponse>('/get-prediction-results', { session_id: sessionId });
       default:
@@ -378,7 +378,7 @@ export class UAgentClient {
       case 'engineering':
         return this.request<CodeResponse>('/get-engineering-function', { session_id: sessionId });
       case 'training':
-        return this.getSessionResult<CodeResponse>(`/session/${sessionId}/training-function`);
+        return this.request<CodeResponse>('/get-training-function', { session_id: sessionId });
       default:
         throw new Error(`Code not available for agent type: ${this.agentType}`);
     }
@@ -398,7 +398,7 @@ export class UAgentClient {
     if (this.agentType !== 'training') {
       throw new Error('Leaderboard only available for training agent');
     }
-    return this.getSessionResult<LeaderboardResponse>(`/session/${sessionId}/leaderboard`);
+    return this.request<LeaderboardResponse>('/get-leaderboard', { session_id: sessionId });
   }
 
   async getSessionLogs(sessionId: string): Promise<LogsResponse> {
@@ -420,6 +420,18 @@ export class UAgentClient {
         return { 
           logs: engResponse.success && engResponse.data ? [engResponse.data] : [], 
           messages: engResponse.success && engResponse.data ? [engResponse.data] : []
+        };
+      case 'training':
+        const trainLogResponse = await this.request<{success: boolean, data?: string, error?: string}>('/get-logs', { session_id: sessionId });
+        return { 
+          logs: trainLogResponse.success && trainLogResponse.data ? [trainLogResponse.data] : [], 
+          messages: trainLogResponse.success && trainLogResponse.data ? [trainLogResponse.data] : []
+        };
+      case 'prediction':
+        const predLogResponse = await this.request<{success: boolean, data?: string, error?: string}>('/get-logs', { session_id: sessionId });
+        return { 
+          logs: predLogResponse.success && predLogResponse.data ? [predLogResponse.data] : [], 
+          messages: predLogResponse.success && predLogResponse.data ? [predLogResponse.data] : []
         };
       default:
         return { logs: [], messages: [] };
@@ -451,6 +463,11 @@ export class UAgentClient {
         return { 
           recommendations: trainResponse.success && trainResponse.data ? [trainResponse.data] : [],
           ml_steps: trainResponse.success && trainResponse.data ? [trainResponse.data] : []
+        };
+      case 'prediction':
+        const predResponse = await this.request<{success: boolean, data?: string, error?: string}>('/get-model-analysis', { session_id: sessionId });
+        return { 
+          recommendations: predResponse.success && predResponse.data ? [predResponse.data] : []
         };
       default:
         return { recommendations: [] };
@@ -494,6 +511,50 @@ export class UAgentClient {
       throw new Error('Cleaned data only available for cleaning agent');
     }
     return this.request<DataResponse>('/get-cleaned-data', { session_id: sessionId });
+  }
+
+  // 🔥 ML TRAINING AGENT SPECIFIC METHODS 🔥
+  async getLeaderboard(sessionId: string): Promise<LeaderboardResponse> {
+    if (this.agentType !== 'training') {
+      throw new Error('Leaderboard only available for training agent');
+    }
+    return this.request<LeaderboardResponse>('/get-leaderboard', { session_id: sessionId });
+  }
+
+  async getBestModelId(sessionId: string): Promise<{success: boolean, model_id?: string, error?: string}> {
+    if (this.agentType !== 'training') {
+      throw new Error('Best model ID only available for training agent');
+    }
+    return this.request<{success: boolean, model_id?: string, error?: string}>('/get-best-model-id', { session_id: sessionId });
+  }
+
+  async getModelPath(sessionId: string): Promise<{success: boolean, model_path?: string, error?: string}> {
+    if (this.agentType !== 'training') {
+      throw new Error('Model path only available for training agent');
+    }
+    return this.request<{success: boolean, model_path?: string, error?: string}>('/get-model-path', { session_id: sessionId });
+  }
+
+  async getTrainingFunction(sessionId: string): Promise<CodeResponse> {
+    if (this.agentType !== 'training') {
+      throw new Error('Training function only available for training agent');
+    }
+    return this.request<CodeResponse>('/get-training-function', { session_id: sessionId });
+  }
+
+  async getWorkflowSummary(sessionId: string): Promise<{success: boolean, data?: any, error?: string}> {
+    if (this.agentType !== 'training') {
+      throw new Error('Workflow summary only available for training agent');
+    }
+    return this.request<{success: boolean, data?: any, error?: string}>('/get-workflow-summary', { session_id: sessionId });
+  }
+
+  async getTrainingFullResponse(sessionId: string): Promise<{success: boolean, data?: any, error?: string}> {
+    if (this.agentType !== 'training') {
+      throw new Error('Full response only available for training agent');
+    }
+    // 🚨 NOTE: This still uses GET endpoint - need to add POST version to backend
+    return this.getSessionResult(`/session/${sessionId}/full-response`);
   }
 }
 
