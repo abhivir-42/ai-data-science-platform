@@ -21,6 +21,7 @@ interface DataFrameViewerProps {
     json?: string
     excel?: string
   }
+  onDownload?: (format: 'csv' | 'json' | 'excel') => void
   title?: string
   description?: string
   className?: string
@@ -33,6 +34,7 @@ export function DataFrameViewer({
   data,
   maxRows = 1000,
   downloadUrls,
+  onDownload,
   title = 'Dataset',
   description,
   className,
@@ -98,6 +100,13 @@ export function DataFrameViewer({
   }
 
   const handleDownload = (format: 'csv' | 'json' | 'excel') => {
+    // Use onDownload callback if available (new approach)
+    if (onDownload) {
+      onDownload(format)
+      return
+    }
+    
+    // Fallback to URL-based download (legacy approach)
     if (downloadUrls?.[format]) {
       const link = document.createElement('a')
       link.href = downloadUrls[format]!
@@ -149,16 +158,16 @@ export function DataFrameViewer({
         </div>
         
         <div className="flex items-center space-x-2">
-          {downloadUrls && (
+          {(downloadUrls || onDownload) && (
             <Select onValueChange={(value) => handleDownload(value as any)}>
               <SelectTrigger className="w-32">
                 <Download className="mr-2 h-4 w-4" />
                 <SelectValue placeholder="Download" />
               </SelectTrigger>
               <SelectContent>
-                {downloadUrls.csv && <SelectItem value="csv">CSV</SelectItem>}
-                {downloadUrls.json && <SelectItem value="json">JSON</SelectItem>}
-                {downloadUrls.excel && <SelectItem value="excel">Excel</SelectItem>}
+                {(downloadUrls?.csv || onDownload) && <SelectItem value="csv">CSV</SelectItem>}
+                {(downloadUrls?.json || onDownload) && <SelectItem value="json">JSON</SelectItem>}
+                {(downloadUrls?.excel || onDownload) && <SelectItem value="excel">Excel</SelectItem>}
               </SelectContent>
             </Select>
           )}

@@ -59,7 +59,7 @@ const agentConfig: Record<AgentType, {
     iconBg: 'bg-orange-100 text-orange-600',
     port: 8007,
     capabilities: ['Feature Creation', 'Transformations', 'Encoding', 'Scaling'],
-    isReady: false,
+    isReady: true,
   },
   training: {
     title: 'ML Training',
@@ -69,7 +69,7 @@ const agentConfig: Record<AgentType, {
     iconBg: 'bg-indigo-100 text-indigo-600',
     port: 8008,
     capabilities: ['AutoML', 'Model Selection', 'Hyperparameter Tuning', 'Leaderboard'],
-    isReady: false,
+    isReady: true,
   },
   prediction: {
     title: 'ML Prediction',
@@ -79,7 +79,7 @@ const agentConfig: Record<AgentType, {
     iconBg: 'bg-red-100 text-red-600',
     port: 8009,
     capabilities: ['Single Prediction', 'Batch Prediction', 'Model Analysis', 'Explanations'],
-    isReady: false,
+    isReady: true,
   },
 }
 

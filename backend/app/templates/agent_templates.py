@@ -571,6 +571,7 @@ def node_func_execute_agent_code_on_data(
     result = None
     try:
         result = agent_function(df)
+        print(f"[DEBUG] Raw agent function result: {type(result)}")
         
         # Test an error
         # if state.get("retry_count") == 0:
@@ -583,12 +584,15 @@ def node_func_execute_agent_code_on_data(
             if isinstance(result, pd.DataFrame):
                 result = result.to_dict()   
         
+        print(f"[DEBUG] Final processed result: {type(result)} - {result is not None}")
+        
     except Exception as e:
-        print(e)
+        print(f"[DEBUG] Agent execution error: {e}")
         agent_error = f"{error_message_prefix}{str(e)}"
     
     # Return results
     output = {result_key: result, error_key: agent_error}
+    print(f"[DEBUG] Output keys: {list(output.keys())}, result_key: {result_key}")
     return output
 
 def node_func_execute_agent_from_sql_connection(

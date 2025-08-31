@@ -337,9 +337,52 @@ export function SessionResultsViewer({ sessionId }: SessionResultsViewerProps) {
                 data={dataQuery.data.data}
                 title="Dataset"
                 description="Processed dataset from the agent"
-                downloadUrls={{
-                  csv: '#', // TODO: Implement actual download URLs
-                  json: '#',
+                onDownload={(format) => {
+                  if (dataQuery.data?.data) {
+                    const data = dataQuery.data.data;
+                    let content: string;
+                    let filename: string;
+                    let mimeType: string;
+                    
+                    if (format === 'csv') {
+                      // Convert to CSV
+                      const headers = data.columns.join(',');
+                      const rows = data.records.map(record => 
+                        data.columns.map(col => {
+                          const value = record[col];
+                          // Handle values with commas, quotes, or newlines
+                          if (typeof value === 'string' && (value.includes(',') || value.includes('"') || value.includes('\n'))) {
+                            return `"${value.replace(/"/g, '""')}"`;
+                          }
+                          return value ?? '';
+                        }).join(',')
+                      ).join('\n');
+                      content = headers + '\n' + rows;
+                      filename = `${session?.agentType || 'data'}_${sessionId.slice(0, 8)}_cleaned.csv`;
+                      mimeType = 'text/csv';
+                    } else {
+                      // Convert to JSON
+                      content = JSON.stringify(data, null, 2);
+                      filename = `${session?.agentType || 'data'}_${sessionId.slice(0, 8)}_cleaned.json`;
+                      mimeType = 'application/json';
+                    }
+                    
+                    // Create and trigger download
+                    const blob = new Blob([content], { type: mimeType });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                    
+                    toast({
+                      title: "Download Complete",
+                      description: `${filename} has been downloaded successfully`,
+                    });
+                  }
                 }}
               />
             ) : (

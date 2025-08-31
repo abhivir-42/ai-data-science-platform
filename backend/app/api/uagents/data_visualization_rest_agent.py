@@ -126,7 +126,15 @@ def _create_data_visualization_agent():
         raise RuntimeError("OPENAI_API_KEY is not set")
     
     llm = ChatOpenAI(model="gpt-4o-mini", api_key=openai_key, temperature=0.1)
-    return DataVisualisationAgent(model=llm, log=True, n_samples=30)
+    agent = DataVisualisationAgent(
+        model=llm, 
+        log=True, 
+        n_samples=30,
+        bypass_explain_code=False,  # CRITICAL: Ensure chart execution happens!
+        human_in_the_loop=False     # No manual approval needed
+    )
+    print(f"[DEBUG] Agent created with bypass_explain_code=False")
+    return agent
 
 # ============================================================================
 # uAgent Setup
@@ -337,13 +345,25 @@ async def get_plotly_graph(ctx: Context, session_id: str) -> ChartResponse:
             )
         
         viz_agent = session["agent"]
-        plotly_graph = viz_agent.get_plotly_graph()
         
-        if plotly_graph is None:
+        # Get chart data directly from the agent response
+        response_data = viz_agent.get_response()
+        if not response_data or 'plotly_graph' not in response_data:
             return ChartResponse(
                 success=False,
                 message="No chart available",
-                error="Chart generation may have failed or not completed"
+                error=f"Chart generation may have failed. Available keys: {list(response_data.keys()) if response_data else 'None'}"
+            )
+        
+        # Get chart data directly from response (bypass problematic get_plotly_graph method)
+        plotly_graph = response_data['plotly_graph']
+        print(f"[DEBUG] Direct chart access: {type(plotly_graph)} - {plotly_graph is not None}")
+        
+        if not plotly_graph:
+            return ChartResponse(
+                success=False,
+                message="No chart data available",
+                error="Chart generation completed but no chart data found"
             )
         
         # Make plotly graph JSON serializable
@@ -576,6 +596,103 @@ class DeleteSessionRequest(Model):
     session_id: str
 
 # ============================================================================
+# DIRECT CHART GENERATION (No Session Storage) 
+# ============================================================================
+
+@agent.on_rest_post("/create-chart-direct", CreateChartCsvRequest, ChartResponse)
+async def create_chart_direct(ctx: Context, req: CreateChartCsvRequest) -> ChartResponse:
+    """Create visualization and return chart data immediately (no session)"""
+    try:
+        # Decode CSV content
+        try:
+            decoded = base64.b64decode(req.file_content)
+            csv_text = decoded.decode("utf-8", errors="replace")
+            df = pd.read_csv(io.StringIO(csv_text))
+        except Exception as e:
+            return ChartResponse(
+                success=False,
+                message="Invalid CSV data",
+                error=f"Failed to decode CSV: {str(e)}"
+            )
+        
+        if df.empty:
+            return ChartResponse(
+                success=False,
+                message="Empty CSV file",
+                error="CSV contains no data"
+            )
+        
+        # Create agent and execute immediately
+        viz_agent = _create_data_visualization_agent()
+        
+        try:
+            print(f"[DEBUG DIRECT] Starting chart generation for {len(df)} rows")
+            viz_agent.invoke_agent(
+                data_raw=df,
+                user_instructions=req.user_instructions,
+                max_retries=req.max_retries
+            )
+            print(f"[DEBUG DIRECT] Chart generation completed successfully")
+        except Exception as e:
+            print(f"[DEBUG DIRECT] Chart generation error: {e}")
+            return ChartResponse(
+                success=False,
+                message="Chart generation failed",
+                error=f"Agent execution error: {str(e)}"
+            )
+        
+        # Get chart data immediately from response
+        response_data = viz_agent.get_response()
+        print(f"[DEBUG DIRECT] Response keys: {list(response_data.keys()) if response_data else 'None'}")
+        
+        if not response_data:
+            return ChartResponse(
+                success=False,
+                message="Chart generation failed",
+                error="No response data from agent"
+            )
+        
+        if 'plotly_graph' not in response_data:
+            return ChartResponse(
+                success=False,
+                message="Chart generation failed",
+                error=f"Missing plotly_graph in response. Available keys: {list(response_data.keys())}"
+            )
+        
+        plotly_graph = response_data['plotly_graph']
+        print(f"[DEBUG DIRECT] Chart data: {type(plotly_graph)} - {plotly_graph is not None}")
+        
+        if not plotly_graph:
+            return ChartResponse(
+                success=False,
+                message="Empty chart data",
+                error="Chart generation completed but produced no data"
+            )
+        
+        # Make chart JSON serializable
+        serializable_graph = make_json_serializable(plotly_graph)
+        
+        # Extract chart type
+        chart_type = None
+        if isinstance(plotly_graph, dict) and 'data' in plotly_graph:
+            if plotly_graph['data'] and len(plotly_graph['data']) > 0:
+                chart_type = plotly_graph['data'][0].get('type', 'unknown')
+        
+        return ChartResponse(
+            success=True,
+            message="Chart created successfully",
+            plotly_chart=serializable_graph,
+            chart_type=chart_type
+        )
+        
+    except Exception as e:
+        return ChartResponse(
+            success=False,
+            message="Chart creation failed",
+            error=str(e)
+        )
+
+# ============================================================================
 # POST Session Access Endpoints (Working)
 # ============================================================================
 
@@ -583,8 +700,10 @@ class DeleteSessionRequest(Model):
 async def get_plotly_graph_post(ctx: Context, req: SessionRequest) -> ChartResponse:
     """Get Plotly graph from session (POST version)"""
     try:
+        print(f"[DEBUG] Requesting chart for session: {req.session_id}")
         session = session_store.get_session(req.session_id)
         if not session:
+            print(f"[DEBUG] Session {req.session_id} not found in store")
             return ChartResponse(
                 success=False,
                 message="Session not found",

@@ -484,7 +484,7 @@ async def get_workflow_summary(ctx: Context, session_id: str) -> GenericResponse
             return GenericResponse(
                 success=False,
                 message="Session not found",
-                error=f"Session {req.session_id} not found or expired"
+                error=f"Session {session_id} not found or expired"
             )
         
         cleaning_agent = session["agent"]
@@ -540,7 +540,7 @@ async def get_full_response(ctx: Context, session_id: str) -> GenericResponse:
             return GenericResponse(
                 success=False,
                 message="Session not found",
-                error=f"Session {req.session_id} not found or expired"
+                error=f"Session {session_id} not found or expired"
             )
         
         cleaning_agent = session["agent"]

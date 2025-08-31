@@ -143,6 +143,8 @@ yarn-error.log*
 
 # Next.js
 .next/
+frontend/node_modules/
+frontend/.next/
 out/
 
 # Production build

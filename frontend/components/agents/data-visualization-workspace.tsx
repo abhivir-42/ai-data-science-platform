@@ -13,39 +13,40 @@ import { visualizationClient } from '@/lib/uagent-client'
 import { useSessionsStore } from '@/lib/store'
 import { useToast } from '@/hooks/use-toast'
 import { BarChart3, ArrowRight } from 'lucide-react'
+import { PlotlyChart } from '@/components/core/plotly-chart'
 
 export function DataVisualizationWorkspace() {
   const [file, setFile] = useState<File | null>(null)
   const [instructions, setInstructions] = useState('')
+  const [chartData, setChartData] = useState<any>(null)
   const router = useRouter()
   const { toast } = useToast()
   const { addSession } = useSessionsStore()
 
   const createChartMutation = useMutation({
     mutationFn: async (params: { file_content: string; filename?: string; user_instructions?: string }) => {
-      return visualizationClient.createChart(params)
+      // Use the working direct chart endpoint that returns chart data immediately
+      return visualizationClient.createChartDirect({
+        filename: params.filename,
+        file_content: params.file_content,
+        user_instructions: params.user_instructions
+      })
     },
     onSuccess: (response) => {
-      if (response.success) {
-        addSession({
-          sessionId: response.session_id,
-          agentType: 'visualization',
-          createdAt: new Date().toISOString(),
-          status: 'completed',
-          description: `Created chart: ${file?.name || 'visualization'}`,
-          executionTimeSeconds: response.execution_time_seconds,
-        })
-
+      if (response.success && response.plotly_chart) {
         toast({
-          title: "Chart Creation Started",
-          description: "Your visualization is being generated. Redirecting to results...",
+          title: "Chart Created Successfully! 🎉",
+          description: `Generated ${response.chart_type} chart with interactive features`,
         })
-        router.push(`/sessions/${response.session_id}` as any)
+        
+        // Store chart data for immediate display
+        setChartData(response.plotly_chart)
       } else {
         throw new Error(response.error || 'Failed to create chart')
       }
     },
     onError: (error) => {
+      console.error('Chart creation error:', error)
       toast({
         title: "Chart Creation Failed",
         description: error instanceof Error ? error.message : "Unknown error occurred",
@@ -82,9 +83,10 @@ export function DataVisualizationWorkspace() {
         user_instructions: instructions.trim() || undefined,
       })
     } catch (error) {
+      console.error('File processing error:', error)
       toast({
-        title: "File Processing Error",
-        description: "Failed to process the selected file",
+        title: "File Processing Error", 
+        description: error instanceof Error ? error.message : "Failed to process the selected file",
         variant: "destructive",
       })
     }
@@ -109,7 +111,7 @@ export function DataVisualizationWorkspace() {
         </div>
 
         {/* Main Content */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className={`grid gap-6 ${chartData ? 'grid-cols-1' : 'grid-cols-1 lg:grid-cols-2'}`}>
           {/* Configuration Panel */}
           <Card className="backdrop-blur-sm bg-white/80 border-white/20 shadow-xl">
             <CardHeader>
@@ -251,6 +253,54 @@ export function DataVisualizationWorkspace() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Chart Display */}
+        {chartData && (
+          <Card className="backdrop-blur-sm bg-white/80 border-white/20 shadow-xl">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <BarChart3 className="h-5 w-5 text-green-500" />
+                Generated Visualization
+              </CardTitle>
+              <CardDescription>
+                Interactive chart created by the visualization agent
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <PlotlyChart
+                figure={chartData}
+                title="AI-Generated Visualization"
+                description="Interactive chart with full Plotly features"
+                height={500}
+              />
+              <div className="mt-4 flex gap-2">
+                <Button 
+                  onClick={() => setChartData(null)} 
+                  variant="outline"
+                >
+                  Create New Chart
+                </Button>
+                <Button 
+                  onClick={() => {
+                    // Add session for later reference
+                    const sessionId = `direct-${Date.now()}`;
+                    addSession({
+                      sessionId,
+                      agentType: 'visualization',
+                      createdAt: new Date().toISOString(),
+                      status: 'completed',
+                      description: `Direct chart: ${file?.name || 'visualization'}`,
+                    });
+                    router.push(`/sessions/${sessionId}`);
+                  }}
+                  variant="default"
+                >
+                  View Full Session Results
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   )

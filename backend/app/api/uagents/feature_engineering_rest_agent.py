@@ -62,6 +62,7 @@ class SessionStore:
     def __init__(self):
         self._sessions = {}
         self._session_timeout_hours = 24
+        print(f"[SessionStore] Initialized session store")
     
     def create_session(self, agent_instance, metadata=None):
         session_id = str(uuid.uuid4())
@@ -70,14 +71,20 @@ class SessionStore:
             "created_at": time.time(),
             "metadata": metadata or {}
         }
+        print(f"[SessionStore] Created session {session_id}. Total sessions: {len(self._sessions)}")
         return session_id
     
     def get_session(self, session_id):
-        return self._sessions.get(session_id)
+        session = self._sessions.get(session_id)
+        print(f"[SessionStore] Get session {session_id}: {'Found' if session else 'Not found'}. Total sessions: {len(self._sessions)}")
+        if not session:
+            print(f"[SessionStore] Available sessions: {list(self._sessions.keys())}")
+        return session
     
     def delete_session(self, session_id):
         if session_id in self._sessions:
             del self._sessions[session_id]
+            print(f"[SessionStore] Deleted session {session_id}. Total sessions: {len(self._sessions)}")
             return True
         return False
 
@@ -190,6 +197,12 @@ class GenericResponse(Model):
     data: Optional[Any] = None
     error: Optional[str] = None
 
+class SessionRequest(Model):
+    session_id: str
+
+class DeleteSessionRequest(Model):
+    session_id: str
+
 # ============================================================================
 # Main Processing Endpoints
 # ============================================================================
@@ -292,6 +305,7 @@ async def engineer_features_csv(ctx: Context, req: EngineerFeaturesCsvRequest) -
         execution_time = time.time() - start_time
         
         # Create session
+        print(f"[DEBUG] Creating session for feature engineering...")
         session_id = session_store.create_session(
             fe_agent,
             metadata={
@@ -303,6 +317,15 @@ async def engineer_features_csv(ctx: Context, req: EngineerFeaturesCsvRequest) -
                 "execution_time": execution_time
             }
         )
+        print(f"[DEBUG] Session created: {session_id}")
+        
+        # Debug: Test immediate retrieval
+        test_session = session_store.get_session(session_id)
+        print(f"[DEBUG] Immediate session test: {'Found' if test_session else 'Not found'}")
+        if test_session:
+            print(f"[DEBUG] Session agent type: {type(test_session['agent'])}")
+            test_data = test_session['agent'].get_data_engineered()
+            print(f"[DEBUG] Engineered data available: {test_data is not None}")
         
         return SessionResponse(
             success=True,
@@ -323,16 +346,46 @@ async def engineer_features_csv(ctx: Context, req: EngineerFeaturesCsvRequest) -
 # Session-Based Result Access Endpoints
 # ============================================================================
 
-@agent.on_rest_get("/session/{session_id}/engineered-data", DataResponse)
-async def get_engineered_data(ctx: Context, session_id: str) -> DataResponse:
-    """Get feature-engineered dataset from session"""
+@agent.on_rest_post("/delete-session", DeleteSessionRequest, GenericResponse)
+async def delete_session(ctx: Context, req: DeleteSessionRequest) -> GenericResponse:
+    """Delete a session"""
     try:
-        session = session_store.get_session(session_id)
+        deleted = session_store.delete_session(req.session_id)
+        
+        if not deleted:
+            return GenericResponse(
+                success=False,
+                message="Session not found",
+                error=f"Session {req.session_id} not found"
+            )
+        
+        return GenericResponse(
+            success=True,
+            message=f"Session {req.session_id} deleted successfully"
+        )
+        
+    except Exception as e:
+        return GenericResponse(
+            success=False,
+            message="Failed to delete session",
+            error=str(e)
+        )
+
+# ============================================================================
+# POST Session Access Endpoints (Working) - For Frontend Compatibility
+# ============================================================================
+
+@agent.on_rest_post("/get-session-data", SessionRequest, DataResponse)
+async def get_session_data_post(ctx: Context, req: SessionRequest) -> DataResponse:
+    """Get engineered dataset from session (POST version for frontend compatibility)"""
+    try:
+        print(f"[DEBUG] POST: Getting engineered data for session {req.session_id}")
+        session = session_store.get_session(req.session_id)
         if not session:
             return DataResponse(
                 success=False,
                 message="Session not found",
-                error=f"Session {session_id} not found or expired"
+                error=f"Session {req.session_id} not found or expired"
             )
         
         fe_agent = session["agent"]
@@ -364,56 +417,22 @@ async def get_engineered_data(ctx: Context, session_id: str) -> DataResponse:
             error=str(e)
         )
 
-@agent.on_rest_get("/session/{session_id}/original-data", DataResponse)
-async def get_original_data(ctx: Context, session_id: str) -> DataResponse:
-    """Get original dataset from session"""
+@agent.on_rest_post("/get-engineering-function", SessionRequest, CodeResponse)
+async def get_engineering_function_post(ctx: Context, req: SessionRequest) -> CodeResponse:
+    """Get engineering function from session (POST version)"""
     try:
-        session = session_store.get_session(session_id)
-        if not session:
-            return DataResponse(
-                success=False,
-                message="Session not found",
-                error=f"Session {session_id} not found or expired"
-            )
-        
-        fe_agent = session["agent"]
-        original_df = fe_agent.get_data_raw()
-        
-        if original_df is None:
-            return DataResponse(
-                success=False,
-                message="No original data available",
-                error="Original data not found in session"
-            )
-        
-        return DataResponse(
-            success=True,
-            message="Original data retrieved successfully",
-            data=dataframe_to_json_safe(original_df),
-            original_shape=list(original_df.shape),
-            processed_shape=list(original_df.shape)
-        )
-        
-    except Exception as e:
-        return DataResponse(
-            success=False,
-            message="Failed to retrieve original data",
-            error=str(e)
-        )
-
-@agent.on_rest_get("/session/{session_id}/engineering-function", CodeResponse)
-async def get_engineering_function(ctx: Context, session_id: str) -> CodeResponse:
-    """Get generated Python feature engineering function from session"""
-    try:
-        session = session_store.get_session(session_id)
+        print(f"[DEBUG] POST: Getting engineering function for session {req.session_id}")
+        session = session_store.get_session(req.session_id)
         if not session:
             return CodeResponse(
                 success=False,
                 message="Session not found",
-                error=f"Session {session_id} not found or expired"
+                error=f"Session {req.session_id} not found or expired"
             )
         
         fe_agent = session["agent"]
+        
+        # Use the correct method to get the function
         engineering_function = fe_agent.get_feature_engineer_function()
         
         if not engineering_function:
@@ -437,20 +456,30 @@ async def get_engineering_function(ctx: Context, session_id: str) -> CodeRespons
             error=str(e)
         )
 
-@agent.on_rest_get("/session/{session_id}/engineering-steps", GenericResponse)
-async def get_engineering_steps(ctx: Context, session_id: str) -> GenericResponse:
-    """Get recommended feature engineering steps from session"""
+@agent.on_rest_post("/get-engineering-steps", SessionRequest, GenericResponse)
+async def get_engineering_steps_post(ctx: Context, req: SessionRequest) -> GenericResponse:
+    """Get engineering recommendations from session (POST version)"""
     try:
-        session = session_store.get_session(session_id)
+        print(f"[DEBUG] POST: Getting engineering steps for session {req.session_id}")
+        session = session_store.get_session(req.session_id)
         if not session:
             return GenericResponse(
                 success=False,
                 message="Session not found",
-                error=f"Session {session_id} not found or expired"
+                error=f"Session {req.session_id} not found or expired"
             )
         
         fe_agent = session["agent"]
+        
+        # Use the correct method to get the steps
         engineering_steps = fe_agent.get_recommended_feature_engineering_steps()
+        
+        if not engineering_steps:
+            return GenericResponse(
+                success=False,
+                message="No engineering steps available",
+                error="No recommendations found in session"
+            )
         
         return GenericResponse(
             success=True,
@@ -465,53 +494,28 @@ async def get_engineering_steps(ctx: Context, session_id: str) -> GenericRespons
             error=str(e)
         )
 
-@agent.on_rest_get("/session/{session_id}/workflow-summary", GenericResponse)
-async def get_workflow_summary(ctx: Context, session_id: str) -> GenericResponse:
-    """Get workflow summary from session"""
+@agent.on_rest_post("/get-logs", SessionRequest, GenericResponse)
+async def get_logs_post(ctx: Context, req: SessionRequest) -> GenericResponse:
+    """Get execution logs from session (POST version)"""
     try:
-        session = session_store.get_session(session_id)
+        print(f"[DEBUG] POST: Getting logs for session {req.session_id}")
+        session = session_store.get_session(req.session_id)
         if not session:
             return GenericResponse(
                 success=False,
                 message="Session not found",
-                error=f"Session {session_id} not found or expired"
+                error=f"Session {req.session_id} not found or expired"
             )
         
         fe_agent = session["agent"]
-        workflow_summary = fe_agent.get_workflow_summary()
         
-        return GenericResponse(
-            success=True,
-            message="Workflow summary retrieved successfully",
-            data=workflow_summary
-        )
-        
-    except Exception as e:
-        return GenericResponse(
-            success=False,
-            message="Failed to retrieve workflow summary",
-            error=str(e)
-        )
-
-@agent.on_rest_get("/session/{session_id}/logs", GenericResponse)
-async def get_logs(ctx: Context, session_id: str) -> GenericResponse:
-    """Get execution logs from session"""
-    try:
-        session = session_store.get_session(session_id)
-        if not session:
-            return GenericResponse(
-                success=False,
-                message="Session not found",
-                error=f"Session {session_id} not found or expired"
-            )
-        
-        fe_agent = session["agent"]
-        log_summary = fe_agent.get_log_summary()
+        # Get logs from the agent
+        logs = fe_agent.get_logs() if hasattr(fe_agent, 'get_logs') else []
         
         return GenericResponse(
             success=True,
             message="Logs retrieved successfully",
-            data=log_summary
+            data=logs if logs else "No logs available"
         )
         
     except Exception as e:
@@ -521,34 +525,82 @@ async def get_logs(ctx: Context, session_id: str) -> GenericResponse:
             error=str(e)
         )
 
-@agent.on_rest_get("/session/{session_id}/full-response", GenericResponse)
-async def get_full_response(ctx: Context, session_id: str) -> GenericResponse:
-    """Get complete agent response from session"""
+@agent.on_rest_post("/get-workflow-summary", SessionRequest, GenericResponse)
+async def get_workflow_summary_post(ctx: Context, req: SessionRequest) -> GenericResponse:
+    """Get workflow summary from session (POST version)"""
     try:
-        session = session_store.get_session(session_id)
+        print(f"[DEBUG] POST: Getting workflow summary for session {req.session_id}")
+        session = session_store.get_session(req.session_id)
         if not session:
             return GenericResponse(
                 success=False,
                 message="Session not found",
-                error=f"Session {session_id} not found or expired"
+                error=f"Session {req.session_id} not found or expired"
             )
         
         fe_agent = session["agent"]
-        response = fe_agent.get_response()
         
-        # Make response JSON serializable
-        serializable_response = make_json_serializable(response)
+        # Create a summary from the session metadata
+        session_data = session_store._sessions.get(req.session_id, {})
+        metadata = session_data.get("metadata", {})
+        
+        summary = {
+            "operation": metadata.get("operation", "feature_engineering"),
+            "filename": metadata.get("filename", "Unknown"),
+            "target_variable": metadata.get("target_variable", "Unknown"),
+            "user_instructions": metadata.get("user_instructions", "None provided"),
+            "original_shape": metadata.get("original_shape", "Unknown"),
+            "execution_time": metadata.get("execution_time", "Unknown")
+        }
         
         return GenericResponse(
             success=True,
-            message="Full response retrieved successfully",
-            data=serializable_response
+            message="Workflow summary retrieved successfully",
+            data=summary
         )
         
     except Exception as e:
         return GenericResponse(
             success=False,
-            message="Failed to retrieve full response",
+            message="Failed to retrieve workflow summary",
+            error=str(e)
+        )
+
+@agent.on_rest_post("/get-original-data", SessionRequest, DataResponse)
+async def get_original_data_post(ctx: Context, req: SessionRequest) -> DataResponse:
+    """Get original dataset from session (POST version)"""
+    try:
+        print(f"[DEBUG] POST: Getting original data for session {req.session_id}")
+        session = session_store.get_session(req.session_id)
+        if not session:
+            return DataResponse(
+                success=False,
+                message="Session not found",
+                error=f"Session {req.session_id} not found or expired"
+            )
+        
+        fe_agent = session["agent"]
+        original_df = fe_agent.get_data_raw()
+        
+        if original_df is None:
+            return DataResponse(
+                success=False,
+                message="No original data available",
+                error="Original data was not found in session"
+            )
+        
+        return DataResponse(
+            success=True,
+            message="Original data retrieved successfully",
+            data=dataframe_to_json_safe(original_df),
+            original_shape=list(original_df.shape),
+            processed_shape=list(original_df.shape)
+        )
+        
+    except Exception as e:
+        return DataResponse(
+            success=False,
+            message="Failed to retrieve original data",
             error=str(e)
         )
 
@@ -564,109 +616,6 @@ async def health_check(ctx: Context) -> HealthResponse:
         agent="feature_engineering_rest_uagent"
     )
 
-class SessionRequest(Model):
-    session_id: str
-
-class DeleteSessionRequest(Model):
-    session_id: str
-
-# ============================================================================
-# POST Session Access Endpoints (Working)
-# ============================================================================
-
-@agent.on_rest_post("/get-engineering-function", SessionRequest, CodeResponse)
-async def get_engineering_function_post(ctx: Context, req: SessionRequest) -> CodeResponse:
-    """Get engineering function from session (POST version)"""
-    try:
-        session = session_store.get_session(req.session_id)
-        if not session:
-            return CodeResponse(
-                success=False,
-                message="Session not found",
-                error=f"Session {req.session_id} not found or expired"
-            )
-        
-        eng_agent = session["agent"]
-        
-        if eng_agent.response and "feature_engineering_function" in eng_agent.response:
-            return CodeResponse(
-                success=True,
-                message="Engineering function retrieved successfully",
-                generated_code=eng_agent.response["feature_engineering_function"]
-            )
-        
-        return CodeResponse(
-            success=False,
-            message="No engineering function available",
-            error="No generated code found in session"
-        )
-        
-    except Exception as e:
-        return CodeResponse(
-            success=False,
-            message="Failed to retrieve engineering function",
-            error=str(e)
-        )
-
-@agent.on_rest_post("/get-engineering-steps", SessionRequest, GenericResponse)
-async def get_engineering_steps_post(ctx: Context, req: SessionRequest) -> GenericResponse:
-    """Get engineering recommendations from session (POST version)"""
-    try:
-        session = session_store.get_session(req.session_id)
-        if not session:
-            return GenericResponse(
-                success=False,
-                message="Session not found",
-                error=f"Session {req.session_id} not found or expired"
-            )
-        
-        eng_agent = session["agent"]
-        
-        if eng_agent.response and "engineering_steps" in eng_agent.response:
-            return GenericResponse(
-                success=True,
-                message="Engineering steps retrieved successfully",
-                data=eng_agent.response["engineering_steps"]
-            )
-        
-        return GenericResponse(
-            success=False,
-            message="No engineering steps available",
-            error="No recommendations found in session"
-        )
-        
-    except Exception as e:
-        return GenericResponse(
-            success=False,
-            message="Failed to retrieve engineering steps",
-            error=str(e)
-        )
-
-@agent.on_rest_post("/delete-session", DeleteSessionRequest, GenericResponse)
-async def delete_session(ctx: Context, req: DeleteSessionRequest) -> GenericResponse:
-    """Delete a session"""
-    try:
-        deleted = session_store.delete_session(req.session_id)
-        
-        if not deleted:
-            return GenericResponse(
-                success=False,
-                message="Session not found",
-                error=f"Session {req.session_id} not found"
-            )
-        
-        return GenericResponse(
-            success=True,
-            message=f"Session {req.session_id} deleted successfully"
-        )
-        
-    except Exception as e:
-        return GenericResponse(
-            success=False,
-            message="Failed to delete session",
-            error=str(e)
-        )
-
 # ============================================================================
 # Main Execution
 # ============================================================================
@@ -677,13 +626,12 @@ if __name__ == "__main__":
     print("   GET  http://127.0.0.1:8007/health")
     print("   POST http://127.0.0.1:8007/engineer-features")
     print("   POST http://127.0.0.1:8007/engineer-features-csv")
-    print("   GET  http://127.0.0.1:8007/session/{id}/engineered-data")
-    print("   GET  http://127.0.0.1:8007/session/{id}/original-data")
-    print("   GET  http://127.0.0.1:8007/session/{id}/engineering-function")
-    print("   GET  http://127.0.0.1:8007/session/{id}/engineering-steps")
-    print("   GET  http://127.0.0.1:8007/session/{id}/workflow-summary")
-    print("   GET  http://127.0.0.1:8007/session/{id}/logs")
-    print("   GET  http://127.0.0.1:8007/session/{id}/full-response")
     print("   POST http://127.0.0.1:8007/session/{id}/delete")
+    print("   POST http://127.0.0.1:8007/get-session-data")
+    print("   POST http://127.0.0.1:8007/get-engineering-function")
+    print("   POST http://127.0.0.1:8007/get-engineering-steps")
+    print("   POST http://127.0.0.1:8007/get-logs")
+    print("   POST http://127.0.0.1:8007/get-workflow-summary")
+    print("   POST http://127.0.0.1:8007/get-original-data")
     print("🚀 Agent starting...")
     agent.run()

@@ -70,6 +70,21 @@ export interface FeatureParams {
   user_instructions?: string;
 }
 
+export interface EngineerFeaturesParams {
+  session_id?: string;
+  filename?: string;
+  file_content?: string; // Base64 encoded CSV
+  target_variable: string;
+  user_instructions?: string;
+  feature_options?: {
+    create_polynomial?: boolean;
+    create_interactions?: boolean;
+    normalize_features?: boolean;
+    handle_categorical?: 'onehot' | 'label' | 'target';
+    create_datetime_features?: boolean;
+  };
+}
+
 export interface TrainingParams {
   session_id?: string;
   filename?: string;
@@ -77,6 +92,20 @@ export interface TrainingParams {
   target_column: string;
   time_budget_seconds?: number;
   user_instructions?: string;
+}
+
+export interface TrainModelParams {
+  session_id?: string;
+  filename?: string;
+  file_content?: string; // Base64 encoded CSV
+  target_variable: string;
+  user_instructions?: string;
+  max_runtime_secs?: number;
+  cv_folds?: number;
+  balance_classes?: boolean;
+  max_models?: number;
+  exclude_algos?: string[];
+  seed?: number;
 }
 
 export interface PredictionParams {
@@ -87,6 +116,25 @@ export interface PredictionParams {
     include_probabilities?: boolean;
     include_feature_importance?: boolean;
   };
+}
+
+export interface PredictSingleParams {
+  model_session_id?: string;
+  model_path?: string;
+  input_data: Record<string, unknown>;
+}
+
+export interface PredictBatchParams {
+  model_session_id?: string;
+  model_path?: string;
+  filename?: string;
+  file_content?: string; // Base64 encoded CSV
+}
+
+export interface AnalyzeModelParams {
+  model_session_id?: string;
+  model_path?: string;
+  query: string;
 }
 
 // Result response types  
@@ -134,14 +182,25 @@ export interface AnalysisResponse {
 // Agent types
 export type AgentType = 'loading' | 'cleaning' | 'visualization' | 'engineering' | 'training' | 'prediction';
 
-// Base URLs for each agent
+// Configuration for agent URLs - can be overridden via environment
+const DEFAULT_HOST = '127.0.0.1'; // Using 127.0.0.1 for reliability across environments
+const AGENT_PORTS: Record<AgentType, number> = {
+  loading: 8005,
+  cleaning: 8004, 
+  visualization: 8006,
+  engineering: 8007,
+  training: 8008,
+  prediction: 8009,
+};
+
+// Base URLs for each agent with environment override support
 const AGENT_BASE_URLS: Record<AgentType, string> = {
-  loading: 'http://127.0.0.1:8005',
-  cleaning: 'http://127.0.0.1:8004', 
-  visualization: 'http://127.0.0.1:8006',
-  engineering: 'http://127.0.0.1:8007',
-  training: 'http://127.0.0.1:8008',
-  prediction: 'http://127.0.0.1:8009',
+  loading: `http://${DEFAULT_HOST}:${AGENT_PORTS.loading}`,
+  cleaning: `http://${DEFAULT_HOST}:${AGENT_PORTS.cleaning}`, 
+  visualization: `http://${DEFAULT_HOST}:${AGENT_PORTS.visualization}`,
+  engineering: `http://${DEFAULT_HOST}:${AGENT_PORTS.engineering}`,
+  training: `http://${DEFAULT_HOST}:${AGENT_PORTS.training}`,
+  prediction: `http://${DEFAULT_HOST}:${AGENT_PORTS.prediction}`,
 };
 
 export class UAgentClient {
@@ -166,19 +225,47 @@ export class UAgentClient {
 
   // Generic request helper
   private async request<T>(endpoint: string, data?: unknown): Promise<T> {
-    const response = await fetch(`${this.baseUrl}${endpoint}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: data ? JSON.stringify(data) : undefined,
-    });
+    const url = `${this.baseUrl}${endpoint}`;
     
-    if (!response.ok) {
-      throw new Error(`Request failed: ${response.statusText}`);
+    // More reliable development detection than NODE_ENV
+    const isDevelopment = typeof window !== 'undefined' && 
+      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: data ? JSON.stringify(data) : undefined,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        const error = new Error(`Request failed: ${response.status} ${response.statusText}: ${errorText}`);
+        
+        // Log detailed error info in development only
+        if (isDevelopment) {
+          console.error(`[UAgentClient] Request failed:`, {
+            url,
+            status: response.status,
+            statusText: response.statusText,
+            error: errorText,
+            requestData: data
+          });
+        }
+        
+        throw error;
+      }
+
+      return response.json();
+    } catch (error) {
+      // Log network/fetch errors in development
+      if (isDevelopment) {
+        console.error(`[UAgentClient] Network error for ${url}:`, error);
+      }
+      throw error;
     }
-    
-    return response.json();
   }
 
   private async getSessionResult<T>(endpoint: string): Promise<T> {
@@ -212,6 +299,15 @@ export class UAgentClient {
   }
 
   // Visualization operations (8006)  
+  async createChartDirect(params: VizParams): Promise<ChartResponse> {
+    return this.request<ChartResponse>('/create-chart-direct', {
+      filename: params.filename,
+      file_content: params.file_content,
+      user_instructions: params.user_instructions,
+      max_retries: 3
+    });
+  }
+
   async createChart(params: VizParams): Promise<SessionResponse> {
     if (params.session_id) {
       return this.request<SessionResponse>('/create-chart', params);
@@ -221,7 +317,7 @@ export class UAgentClient {
   }
 
   // Feature Engineering operations (8007)
-  async engineerFeatures(params: FeatureParams): Promise<SessionResponse> {
+  async engineerFeatures(params: EngineerFeaturesParams): Promise<SessionResponse> {
     if (params.session_id) {
       return this.request<SessionResponse>('/engineer-features', params);
     } else {
@@ -230,7 +326,7 @@ export class UAgentClient {
   }
 
   // ML Training operations (8008)
-  async trainModel(params: TrainingParams): Promise<SessionResponse> {
+  async trainModel(params: TrainModelParams): Promise<SessionResponse> {
     if (params.session_id) {
       return this.request<SessionResponse>('/train-model', params);
     } else {
@@ -239,25 +335,34 @@ export class UAgentClient {
   }
 
   // ML Prediction operations (8009)
-  async predictSingle(params: PredictionParams): Promise<SessionResponse> {
+  async predictSingle(params: PredictSingleParams): Promise<SessionResponse> {
     return this.request<SessionResponse>('/predict-single', params);
   }
 
-  async predictBatch(params: PredictionParams): Promise<SessionResponse> {
+  async predictBatch(params: PredictBatchParams): Promise<SessionResponse> {
     return this.request<SessionResponse>('/predict-batch', params);
   }
 
-  async analyzeModel(params: { model_session_id?: string; model_path?: string }): Promise<SessionResponse> {
+  async analyzeModel(params: AnalyzeModelParams): Promise<SessionResponse> {
     return this.request<SessionResponse>('/analyze-model', params);
   }
 
   // Session result getters  
   async getSessionData(sessionId: string): Promise<DataResponse> {
-    // Use the POST /get-artifacts endpoint instead of GET session endpoint
-    if (this.agentType === 'loading') {
-      return this.request<DataResponse>('/get-artifacts', { session_id: sessionId });
+    switch (this.agentType) {
+      case 'loading':
+        return this.request<DataResponse>('/get-artifacts', { session_id: sessionId });
+      case 'cleaning':
+        return this.request<DataResponse>('/get-cleaned-data', { session_id: sessionId });
+      case 'engineering':
+        return this.request<DataResponse>('/get-session-data', { session_id: sessionId });
+      case 'training':
+        return this.getSessionResult<DataResponse>(`/session/${sessionId}/original-data`);
+      case 'prediction':
+        return this.request<DataResponse>('/get-prediction-results', { session_id: sessionId });
+      default:
+        return this.getSessionResult<DataResponse>(`/session/${sessionId}/data`);
     }
-    return this.getSessionResult<DataResponse>(`/session/${sessionId}/data`);
   }
 
   async getSessionCode(sessionId: string): Promise<CodeResponse> {
@@ -273,7 +378,7 @@ export class UAgentClient {
       case 'engineering':
         return this.request<CodeResponse>('/get-engineering-function', { session_id: sessionId });
       case 'training':
-        return this.request<CodeResponse>('/get-training-function', { session_id: sessionId });
+        return this.getSessionResult<CodeResponse>(`/session/${sessionId}/training-function`);
       default:
         throw new Error(`Code not available for agent type: ${this.agentType}`);
     }
@@ -283,14 +388,17 @@ export class UAgentClient {
     if (this.agentType !== 'visualization') {
       throw new Error('Charts only available for visualization agent');
     }
-    return this.request<ChartResponse>('/get-plotly-graph', { session_id: sessionId });
+    const response = await this.request<{success: boolean, plotly_chart?: any, chart_type?: string, error?: string}>('/get-plotly-graph', { session_id: sessionId });
+    return { 
+      figure: response.plotly_chart // Map plotly_chart to figure for frontend
+    };
   }
 
   async getSessionLeaderboard(sessionId: string): Promise<LeaderboardResponse> {
     if (this.agentType !== 'training') {
       throw new Error('Leaderboard only available for training agent');
     }
-    return this.request<LeaderboardResponse>('/get-leaderboard', { session_id: sessionId });
+    return this.getSessionResult<LeaderboardResponse>(`/session/${sessionId}/leaderboard`);
   }
 
   async getSessionLogs(sessionId: string): Promise<LogsResponse> {
@@ -306,6 +414,12 @@ export class UAgentClient {
         return { 
           logs: response.success && response.data ? [response.data] : [], 
           messages: response.success && response.data ? [response.data] : []
+        };
+      case 'engineering':
+        const engResponse = await this.request<{success: boolean, data?: string, error?: string}>('/get-logs', { session_id: sessionId });
+        return { 
+          logs: engResponse.success && engResponse.data ? [engResponse.data] : [], 
+          messages: engResponse.success && engResponse.data ? [engResponse.data] : []
         };
       default:
         return { logs: [], messages: [] };

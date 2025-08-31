@@ -318,7 +318,12 @@ Function Name: {self.response.get('data_visualization_function_name')}
             The Plotly graph dictionary if available, otherwise None.
         """
         if self.response:
-            return plotly_from_dict(self.response.get("plotly_graph", None))
+            print(f"[DEBUG] VizAgent response keys: {list(self.response.keys())}")
+            chart_data = self.response.get("plotly_graph", None)
+            print(f"[DEBUG] Chart data in response: {type(chart_data)} - {chart_data is not None}")
+            if chart_data:
+                print(f"[DEBUG] Chart data preview: {str(chart_data)[:200]}...")
+            return plotly_from_dict(chart_data)
         return None
 
     def get_data_raw(self):
@@ -731,7 +736,7 @@ def make_data_visualization_agent(
             result_key="plotly_graph",
             error_key="data_visualization_error",
             code_snippet_key="data_visualization_function",
-            agent_function_name=state.get("data_visualization_function_name"),
+            agent_function_name=state.get("data_visualization_function_name") or "data_visualization",  # Fallback to default
             pre_processing=lambda data: pd.DataFrame.from_dict(data),
             # post_processing=lambda df: df.to_dict() if isinstance(df, pd.DataFrame) else df,
             error_message_prefix="An error occurred during data visualization: ",
@@ -803,7 +808,7 @@ def make_data_visualization_agent(
         human_review_node_name="human_review",
         checkpointer=checkpointer,
         bypass_recommended_steps=bypass_recommended_steps,
-        bypass_explain_code=bypass_explain_code,
+        bypass_explain_code=False,  # FORCE execution to happen
         agent_name=AGENT_NAME,
     )
 
