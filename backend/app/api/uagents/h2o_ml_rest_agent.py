@@ -818,6 +818,175 @@ async def get_ml_steps_post(ctx: Context, req: SessionRequest) -> GenericRespons
             error=str(e)
         )
 
+@agent.on_rest_post("/get-original-data", SessionRequest, DataResponse)
+async def get_original_data_post(ctx: Context, req: SessionRequest) -> DataResponse:
+    """Get original training dataset from session (POST version)"""
+    try:
+        session = session_store.get_session(req.session_id)
+        if not session:
+            return DataResponse(
+                success=False,
+                message="Session not found",
+                error=f"Session {req.session_id} not found or expired"
+            )
+        
+        ml_agent = session["agent"]
+        original_df = ml_agent.get_data_raw()
+        
+        if original_df is None:
+            return DataResponse(
+                success=False,
+                message="No original data available",
+                error="Original data was not found in session"
+            )
+        
+        return DataResponse(
+            success=True,
+            message="Original data retrieved successfully",
+            data=dataframe_to_json_safe(original_df),
+            original_shape=list(original_df.shape),
+            processed_shape=list(original_df.shape)
+        )
+        
+    except Exception as e:
+        return DataResponse(
+            success=False,
+            message="Failed to retrieve original data",
+            error=str(e)
+        )
+
+@agent.on_rest_post("/get-logs", SessionRequest, GenericResponse)
+async def get_logs_post(ctx: Context, req: SessionRequest) -> GenericResponse:
+    """Get training execution logs from session (POST version)"""
+    try:
+        session = session_store.get_session(req.session_id)
+        if not session:
+            return GenericResponse(
+                success=False,
+                message="Session not found",
+                error=f"Session {req.session_id} not found or expired"
+            )
+        
+        ml_agent = session["agent"]
+        
+        # Get logs from the agent
+        logs = ml_agent.get_logs() if hasattr(ml_agent, 'get_logs') else []
+        
+        return GenericResponse(
+            success=True,
+            message="Logs retrieved successfully",
+            data=logs if logs else "No logs available"
+        )
+        
+    except Exception as e:
+        return GenericResponse(
+            success=False,
+            message="Failed to retrieve logs",
+            error=str(e)
+        )
+
+@agent.on_rest_post("/get-best-model-id", SessionRequest, ModelInfoResponse)
+async def get_best_model_id_post(ctx: Context, req: SessionRequest) -> ModelInfoResponse:
+    """Get best model ID from session (POST version)"""
+    try:
+        session = session_store.get_session(req.session_id)
+        if not session:
+            return ModelInfoResponse(
+                success=False,
+                message="Session not found",
+                error=f"Session {req.session_id} not found or expired"
+            )
+        
+        ml_agent = session["agent"]
+        
+        if ml_agent.response and "best_model_id" in ml_agent.response:
+            return ModelInfoResponse(
+                success=True,
+                message="Best model ID retrieved successfully",
+                model_id=ml_agent.response["best_model_id"]
+            )
+        
+        return ModelInfoResponse(
+            success=False,
+            message="No best model available",
+            error="No best model found in session"
+        )
+        
+    except Exception as e:
+        return ModelInfoResponse(
+            success=False,
+            message="Failed to retrieve best model ID",
+            error=str(e)
+        )
+
+@agent.on_rest_post("/get-model-path", SessionRequest, ModelInfoResponse)
+async def get_model_path_post(ctx: Context, req: SessionRequest) -> ModelInfoResponse:
+    """Get model path from session (POST version)"""
+    try:
+        session = session_store.get_session(req.session_id)
+        if not session:
+            return ModelInfoResponse(
+                success=False,
+                message="Session not found",
+                error=f"Session {req.session_id} not found or expired"
+            )
+        
+        ml_agent = session["agent"]
+        
+        if ml_agent.response and "model_path" in ml_agent.response:
+            return ModelInfoResponse(
+                success=True,
+                message="Model path retrieved successfully",
+                model_path=ml_agent.response["model_path"]
+            )
+        
+        return ModelInfoResponse(
+            success=False,
+            message="No model path available",
+            error="No model path found in session"
+        )
+        
+    except Exception as e:
+        return ModelInfoResponse(
+            success=False,
+            message="Failed to retrieve model path",
+            error=str(e)
+        )
+
+@agent.on_rest_post("/get-workflow-summary", SessionRequest, GenericResponse)
+async def get_workflow_summary_post(ctx: Context, req: SessionRequest) -> GenericResponse:
+    """Get workflow summary from session (POST version)"""
+    try:
+        session = session_store.get_session(req.session_id)
+        if not session:
+            return GenericResponse(
+                success=False,
+                message="Session not found",
+                error=f"Session {req.session_id} not found or expired"
+            )
+        
+        ml_agent = session["agent"]
+        
+        if ml_agent.response and "workflow_summary" in ml_agent.response:
+            return GenericResponse(
+                success=True,
+                message="Workflow summary retrieved successfully",
+                data=ml_agent.response["workflow_summary"]
+            )
+        
+        return GenericResponse(
+            success=False,
+            message="No workflow summary available",
+            error="No workflow summary found in session"
+        )
+        
+    except Exception as e:
+        return GenericResponse(
+            success=False,
+            message="Failed to retrieve workflow summary",
+            error=str(e)
+        )
+
 @agent.on_rest_post("/delete-session", DeleteSessionRequest, GenericResponse)
 async def delete_session(ctx: Context, req: DeleteSessionRequest) -> GenericResponse:
     """Delete a session"""

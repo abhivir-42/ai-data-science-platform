@@ -231,6 +231,20 @@ class GenericResponse(Model):
     data: Optional[Any] = None
     error: Optional[str] = None
 
+class DataResponse(Model):
+    success: bool
+    message: str
+    data: Optional[Dict[str, Any]] = None
+    original_shape: Optional[List[int]] = None
+    processed_shape: Optional[List[int]] = None
+    error: Optional[str] = None
+
+class SessionRequest(Model):
+    session_id: str
+
+class DeleteSessionRequest(Model):
+    session_id: str
+
 # ============================================================================
 # Main Processing Endpoints
 # ============================================================================
@@ -606,12 +620,6 @@ async def health_check(ctx: Context) -> HealthResponse:
         agent="ml_prediction_rest_uagent"
     )
 
-class SessionRequest(Model):
-    session_id: str
-
-class DeleteSessionRequest(Model):
-    session_id: str
-
 # ============================================================================
 # POST Session Access Endpoints (Working)
 # ============================================================================
@@ -647,6 +655,74 @@ async def get_model_analysis_post(ctx: Context, req: SessionRequest) -> ModelAna
         return ModelAnalysisResponse(
             success=False,
             message="Failed to retrieve model analysis",
+            error=str(e)
+        )
+
+@agent.on_rest_post("/get-prediction-results", SessionRequest, DataResponse)
+async def get_prediction_results_post(ctx: Context, req: SessionRequest) -> DataResponse:
+    """Get prediction results from session (POST version)"""
+    try:
+        session = session_store.get_session(req.session_id)
+        if not session:
+            return DataResponse(
+                success=False,
+                message="Session not found",
+                error=f"Session {req.session_id} not found or expired"
+            )
+        
+        pred_agent = session["agent"]
+        
+        # Get prediction results from session metadata or agent
+        metadata = session.get("metadata", {})
+        prediction_result = metadata.get("prediction_result")
+        
+        if prediction_result is None:
+            return DataResponse(
+                success=False,
+                message="No prediction results available",
+                error="Predictions were not found in session"
+            )
+        
+        return DataResponse(
+            success=True,
+            message="Prediction results retrieved successfully",
+            data=prediction_result
+        )
+        
+    except Exception as e:
+        return DataResponse(
+            success=False,
+            message="Failed to retrieve prediction results",
+            error=str(e)
+        )
+
+@agent.on_rest_post("/get-logs", SessionRequest, GenericResponse)
+async def get_logs_post(ctx: Context, req: SessionRequest) -> GenericResponse:
+    """Get prediction execution logs from session (POST version)"""
+    try:
+        session = session_store.get_session(req.session_id)
+        if not session:
+            return GenericResponse(
+                success=False,
+                message="Session not found",
+                error=f"Session {req.session_id} not found or expired"
+            )
+        
+        pred_agent = session["agent"]
+        
+        # Get logs from the agent
+        logs = pred_agent.get_logs() if hasattr(pred_agent, 'get_logs') else []
+        
+        return GenericResponse(
+            success=True,
+            message="Logs retrieved successfully",
+            data=logs if logs else "No logs available"
+        )
+        
+    except Exception as e:
+        return GenericResponse(
+            success=False,
+            message="Failed to retrieve logs",
             error=str(e)
         )
 

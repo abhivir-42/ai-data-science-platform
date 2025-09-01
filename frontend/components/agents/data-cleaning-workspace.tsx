@@ -171,15 +171,6 @@ export function DataCleaningWorkspace() {
       </div>
 
       <div className="container mx-auto px-4 py-8">
-        {isLoading && (
-          <div className="mb-6">
-            <ProgressIndicator
-              status="running"
-              message="Analyzing and cleaning your data..."
-              variant="detailed"
-            />
-          </div>
-        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Main Content */}
@@ -381,7 +372,16 @@ export function DataCleaningWorkspace() {
 
             {/* Execute Button */}
             <Card>
-              <CardContent className="pt-6">
+              <CardContent className="pt-6 space-y-4">
+                {/* 🔥 PROGRESS INDICATOR - RIGHT WHERE USER EXPECTS IT */}
+                {isLoading && (
+                  <ProgressIndicator
+                    status="running"
+                    message="Analyzing and cleaning your data..."
+                    variant="detailed"
+                  />
+                )}
+                
                 <Button 
                   onClick={activeTab === 'session' ? handleCleanFromSession : handleCleanFromFile}
                   disabled={
@@ -443,41 +443,32 @@ export function DataCleaningWorkspace() {
 
             <Card>
               <CardHeader>
-                <CardTitle>Next Steps</CardTitle>
+                <CardTitle>Workflow Progress</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="flex items-center space-x-2 text-sm">
                   <div className="w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs">
-                    1
+                    ✓
+                  </div>
+                  <span>Data loaded</span>
+                </div>
+                <div className="flex items-center space-x-2 text-sm">
+                  <div className="w-6 h-6 rounded-full bg-orange-500 text-white flex items-center justify-center text-xs">
+                    🧹
                   </div>
                   <span>Clean your data</span>
                 </div>
                 <div className="flex items-center space-x-2 text-sm">
                   <div className="w-6 h-6 rounded-full bg-muted text-muted-foreground flex items-center justify-center text-xs">
-                    2
-                  </div>
-                  <span>Visualize insights</span>
-                </div>
-                <div className="flex items-center space-x-2 text-sm">
-                  <div className="w-6 h-6 rounded-full bg-muted text-muted-foreground flex items-center justify-center text-xs">
                     3
                   </div>
-                  <span>Engineer features</span>
+                  <span>Next: Analysis & insights</span>
                 </div>
                 
-                <div className="grid grid-cols-1 gap-2 mt-4">
-                  <Link href="/agents/visualization">
-                    <Button variant="outline" size="sm" className="w-full">
-                      Visualization
-                      <ArrowRight className="ml-2 h-3 w-3" />
-                    </Button>
-                  </Link>
-                  <Link href="/agents/engineering">
-                    <Button variant="outline" size="sm" className="w-full">
-                      Feature Engineering
-                      <ArrowRight className="ml-2 h-3 w-3" />
-                    </Button>
-                  </Link>
+                <div className="mt-4 p-3 bg-blue-50 rounded-lg border-l-4 border-blue-400">
+                  <p className="text-sm text-blue-700 font-medium">
+                    💡 After cleaning, visit the Results page to see your next steps and continue the workflow!
+                  </p>
                 </div>
               </CardContent>
             </Card>

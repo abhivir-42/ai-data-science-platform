@@ -734,7 +734,7 @@ def make_feature_engineering_agent(
                     if target_col in data_raw.columns:
                         data_engineered[target_col] = data_raw[target_col]
                     else:
-                        print(f"WARNING: Target column {{target_col}} not found!")
+                        print(f"WARNING: Target column {{{{target_col}}}} not found!")
                 
                 return data_engineered
             
@@ -756,10 +756,14 @@ def make_feature_engineering_agent(
             - Use dtype=np.int32 instead of dtype=np.int
             - Always import what you need: from sklearn.preprocessing import OneHotEncoder
             
-            CRITICAL - Python String & Regex Syntax:
+            CRITICAL - Python Syntax Validation:
+            - ALWAYS validate parentheses, brackets, and braces are properly matched
             - Use raw strings for regex patterns: r'pattern' instead of 'pattern'
             - For literal dots in regex, use r'\\.' or '\\\\.'
-            - Example: data['Title'] = data['Name'].str.extract(r' ([A-Za-z]+)\\.', expand=False)
+            - Example: data['Title'] = data['Name'].str.extract(r' ([A-Za-z]+)')
+            - Double-check all bracket pairs: [], {{}}, ()
+            - Test: encoder.fit_transform(data[['column']]) NOT encoder.fit_transform(data[['column'])
+            - MANDATORY: Count opening and closing brackets before generating code
             - Avoid unescaped backslashes in string literals
             - Use f-strings or .format() for string formatting, not % formatting
             
@@ -810,7 +814,7 @@ def make_feature_engineering_agent(
 
 
             """,
-            input_variables=["recommeded_steps", "target_variable", "all_datasets_summary", "function_name"]
+            input_variables=["recommended_steps", "target_variable", "all_datasets_summary", "function_name"]
         )
 
         feature_engineering_agent = feature_engineering_prompt | llm | PythonOutputParser()

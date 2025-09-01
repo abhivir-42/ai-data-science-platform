@@ -626,7 +626,8 @@ def make_h2o_ml_agent(
                     # CRITICAL: Handle binary classification properly
                     # Check if target is binary (0/1) and convert to categorical
                     target_unique = data_h2o[target].unique().as_data_frame()
-                    unique_values = sorted(target_unique[target].tolist())
+                    # H2O renames the column to 'C1' in unique(), so use iloc to access the first column
+                    unique_values = sorted(target_unique.iloc[:, 0].tolist())
                     
                     is_binary_classification = (
                         len(unique_values) == 2 and 
