@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 
-from app.api import agents, data, jobs, health
+from app.api import agents, data, jobs, health, workflows
 from app.core.config import settings
 from app.core.logging import setup_logging
 
@@ -54,6 +54,7 @@ app.include_router(health.router, prefix="/api", tags=["health"])
 app.include_router(agents.router, prefix="/api/agents", tags=["agents"])
 app.include_router(data.router, prefix="/api/data", tags=["data"])
 app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
+app.include_router(workflows.router, prefix="/api", tags=["workflows"])
 
 
 @app.get("/")

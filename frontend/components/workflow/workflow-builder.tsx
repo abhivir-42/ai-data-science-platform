@@ -1,8 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Plus, Play, ArrowRight, Settings, Trash2, Database, Sparkles, BarChart3, Wrench, Brain, Target, Zap, FileText } from 'lucide-react'
+import { ArrowLeft, Plus, Play, ArrowRight, Settings, Trash2, Database, Sparkles, BarChart3, Wrench, Brain, Target, Zap, FileText, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -12,6 +12,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { cn } from '@/lib/utils'
 import { useWorkflowStore } from '@/lib/store'
 import { useToast } from '@/hooks/use-toast'
+import { workflowClient } from '@/lib/workflow-client'
+import { WorkflowFileUploader } from './workflow-file-uploader'
 import type { AgentType } from '@/lib/uagent-client'
 
 // Agent configuration for workflow builder
@@ -98,9 +100,35 @@ export function WorkflowBuilder() {
   const [workflowName, setWorkflowName] = useState('')
   const [selectedSteps, setSelectedSteps] = useState<AgentType[]>([])
   const [showTemplates, setShowTemplates] = useState(true)
+  const [showExecuteDialog, setShowExecuteDialog] = useState(false)
+  const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null)
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null)
+  const [isExecuting, setIsExecuting] = useState(false)
+  const [executionResults, setExecutionResults] = useState<any>(null)
   
   const { workflows, createWorkflow, setActiveWorkflow } = useWorkflowStore()
   const { toast } = useToast()
+
+  // Check for URL parameters to auto-start workflows
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search)
+      const template = urlParams.get('template')
+      
+      if (template === 'quick-analysis') {
+        // Auto-open Quick Analysis execution dialog
+        setSelectedTemplate('quick-analysis')
+        setShowExecuteDialog(true)
+        setShowTemplates(false)
+        
+        toast({
+          title: "Quick Analysis Ready",
+          description: "Upload your data file to start the Quick Data Analysis workflow",
+          variant: "default",
+        })
+      }
+    }
+  }, [toast])
 
   const addStep = (agentType: AgentType) => {
     if (!selectedSteps.includes(agentType)) {
@@ -113,13 +141,14 @@ export function WorkflowBuilder() {
   }
 
   const loadTemplate = (template: typeof workflowTemplates[0]) => {
-    setWorkflowName(template.name)
-    setSelectedSteps(template.steps)
-    setShowTemplates(false)
+    setSelectedTemplate(template.id)
+    setShowExecuteDialog(true)
+    setUploadedFile(null)
+    setExecutionResults(null)
     
     toast({
-      title: "Template loaded",
-      description: `Loaded "${template.name}" workflow template`,
+      title: "Template selected",
+      description: `Ready to execute "${template.name}" workflow`,
       variant: "default",
     })
   }
@@ -163,13 +192,94 @@ export function WorkflowBuilder() {
     setShowTemplates(true)
   }
 
+  const executeWorkflow = async () => {
+    if (!uploadedFile) {
+      toast({
+        title: "File required",
+        description: "Please upload a file to execute the workflow",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (!selectedTemplate) {
+      toast({
+        title: "Template required", 
+        description: "Please select a workflow template",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsExecuting(true)
+    
+    try {
+      let result
+      
+      if (selectedTemplate === 'quick-analysis') {
+        result = await workflowClient.executeQuickAnalysis(
+          uploadedFile,
+          'Perform comprehensive data analysis including loading, cleaning, and visualization'
+        )
+      } else if (selectedTemplate === 'ml-pipeline') {
+        // For ML pipeline, we'd need to ask for target variable
+        // For now, let's use a default message
+        toast({
+          title: "ML Pipeline",
+          description: "ML Pipeline workflow requires target variable selection. This will be implemented in the next update.",
+          variant: "default",
+        })
+        setIsExecuting(false)
+        return
+      } else {
+        toast({
+          title: "Template not supported",
+          description: "This template is not yet supported for direct execution",
+          variant: "destructive",
+        })
+        setIsExecuting(false)
+        return
+      }
+
+      // Poll for results
+      const finalResults = await workflowClient.pollWorkflowUntilComplete(
+        result.workflow_id,
+        (status) => {
+          toast({
+            title: "Workflow Progress",
+            description: `Step ${status.current_step}/${status.total_steps}: ${Math.round(status.progress_percentage)}% complete`,
+            variant: "default",
+          })
+        }
+      )
+
+      setExecutionResults(finalResults)
+      
+      toast({
+        title: "Workflow completed!",
+        description: `"${finalResults.name}" completed successfully in ${finalResults.total_execution_time?.toFixed(1)}s`,
+        variant: "default",
+      })
+
+    } catch (error) {
+      console.error('Workflow execution failed:', error)
+      toast({
+        title: "Workflow failed",
+        description: error instanceof Error ? error.message : "Unknown error occurred",
+        variant: "destructive",
+      })
+    } finally {
+      setIsExecuting(false)
+    }
+  }
+
   const runWorkflow = (workflowId: string) => {
     const workflow = workflows.find(w => w.id === workflowId)
     if (workflow) {
       setActiveWorkflow(workflow)
       toast({
-        title: "Workflow execution",
-        description: "This feature will be available in the next version",
+        title: "Custom workflows",
+        description: "Custom workflow execution will be available in the next update",
         variant: "default",
       })
     }
@@ -592,6 +702,152 @@ export function WorkflowBuilder() {
           </div>
         </div>
       </div>
+
+      {/* Workflow Execution Dialog */}
+      {showExecuteDialog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <Card className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-2xl font-bold text-gray-900">
+                    Execute Workflow
+                  </CardTitle>
+                  <CardDescription className="text-gray-600">
+                    {selectedTemplate === 'quick-analysis' && 'Quick Data Analysis: Load → Clean → Visualize'}
+                    {selectedTemplate === 'ml-pipeline' && 'Complete ML Pipeline: Load → Clean → Engineer → Train'}
+                    {selectedTemplate === 'data-prep' && 'Data Preparation: Load → Clean → Engineer'}
+                  </CardDescription>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowExecuteDialog(false)}
+                  disabled={isExecuting}
+                >
+                  ×
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {!executionResults ? (
+                <>
+                  <div>
+                    <Label className="text-base font-medium text-gray-900 mb-4 block">
+                      Upload Your Data File
+                    </Label>
+                    <WorkflowFileUploader
+                      onFileSelect={setUploadedFile}
+                      selectedFile={uploadedFile}
+                      onRemoveFile={() => setUploadedFile(null)}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between pt-4 border-t border-gray-200">
+                    <Button
+                      variant="outline"
+                      onClick={() => setShowExecuteDialog(false)}
+                      disabled={isExecuting}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={executeWorkflow}
+                      disabled={!uploadedFile || isExecuting}
+                      className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
+                    >
+                      {isExecuting ? (
+                        <>
+                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                          Executing...
+                        </>
+                      ) : (
+                        <>
+                          <Play className="mr-2 h-4 w-4" />
+                          Execute Workflow
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                    <div className="flex items-center text-green-800 mb-2">
+                      <div className="w-5 h-5 bg-green-500 rounded-full flex items-center justify-center mr-2">
+                        ✓
+                      </div>
+                      <span className="font-medium">Workflow Completed Successfully!</span>
+                    </div>
+                    <div className="text-sm text-green-700">
+                      <div>Name: {executionResults.name}</div>
+                      <div>Execution Time: {executionResults.total_execution_time?.toFixed(1)}s</div>
+                      <div>Steps Completed: {executionResults.steps?.length}</div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <h3 className="font-semibold text-gray-900">Workflow Results</h3>
+                    {executionResults.steps?.map((step: any, index: number) => (
+                      <div key={step.id} className="border border-gray-200 rounded-lg p-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center space-x-2">
+                            <div className="w-6 h-6 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-sm font-medium">
+                              {index + 1}
+                            </div>
+                            <span className="font-medium capitalize">{step.agent_type} Agent</span>
+                          </div>
+                          <Badge variant={step.status === 'completed' ? 'secondary' : 'destructive'}>
+                            {step.status}
+                          </Badge>
+                        </div>
+                        {step.session_id && (
+                          <div className="text-sm text-gray-600">
+                            Session ID: {step.session_id}
+                          </div>
+                        )}
+                        {step.execution_time_seconds && (
+                          <div className="text-sm text-gray-600">
+                            Execution Time: {step.execution_time_seconds.toFixed(1)}s
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center justify-between pt-4 border-t border-gray-200">
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setShowExecuteDialog(false)
+                        setExecutionResults(null)
+                        setSelectedTemplate(null)
+                        setUploadedFile(null)
+                      }}
+                    >
+                      Close
+                    </Button>
+                    {executionResults.steps?.some((step: any) => step.session_id) && (
+                      <Button
+                        onClick={() => {
+                          // Navigate to results view
+                          const firstSessionId = executionResults.steps.find((step: any) => step.session_id)?.session_id
+                          if (firstSessionId) {
+                            window.location.href = `/sessions/${firstSessionId}`
+                          }
+                        }}
+                        className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700"
+                      >
+                        View Results
+                      </Button>
+                    )}
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   )
 }

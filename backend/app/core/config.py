@@ -4,6 +4,7 @@ Application configuration settings
 
 import os
 from typing import List, Optional
+from pydantic import Field
 from pydantic_settings import BaseSettings
 
 
@@ -31,7 +32,7 @@ class Settings(BaseSettings):
     # File Storage
     UPLOAD_PATH: str = "./uploads"
     MAX_FILE_SIZE_MB: int = 100
-    ALLOWED_EXTENSIONS: List[str] = [".csv", ".xlsx", ".json", ".parquet", ".pdf"]
+    ALLOWED_EXTENSIONS: List[str] = Field(default=[".csv", ".xlsx", ".json", ".parquet", ".pdf"])
     
     # MLflow
     MLFLOW_TRACKING_URI: str = "http://localhost:5000"
@@ -47,7 +48,7 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     
     # CORS
-    ALLOWED_ORIGINS: List[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
+    ALLOWED_ORIGINS: List[str] = Field(default=["http://localhost:3000", "http://127.0.0.1:3000"])
     
     # Monitoring
     ENABLE_METRICS: bool = True
@@ -56,6 +57,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = "../.env"
         case_sensitive = True
+        env_file_encoding = 'utf-8'
 
 
 # Global settings instance

@@ -205,7 +205,7 @@ export function WorkflowDashboard() {
               const Icon = template.icon
               return (
                 <Card key={template.id} className="group relative overflow-hidden hover:shadow-xl transition-all duration-300 border-0 bg-white/70 backdrop-blur-sm">
-                  <div className="absolute inset-0 bg-gradient-to-br from-white/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                  <div className="absolute inset-0 bg-gradient-to-br from-white/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
                   
                   <CardHeader className="relative z-10">
                     <div className="flex items-start justify-between mb-4">
@@ -241,12 +241,19 @@ export function WorkflowDashboard() {
                       ))}
                     </div>
                     
-                    <Link href="/workflows" className="block">
-                      <Button className="w-full group-hover:bg-blue-600 transition-colors">
-                        Start Workflow
-                        <ArrowRight className="ml-2 h-4 w-4 group-hover:translate-x-1 transition-transform" />
-                      </Button>
-                    </Link>
+                    <Button 
+                      className="w-full group-hover:bg-blue-600 transition-colors"
+                      onClick={() => {
+                        if (template.id === 'quick-analysis') {
+                          window.location.href = '/workflows?template=quick-analysis';
+                        } else {
+                          window.location.href = '/workflows';
+                        }
+                      }}
+                    >
+                      Start Workflow
+                      <ArrowRight className="ml-2 h-4 w-4 group-hover:translate-x-1 transition-transform" />
+                    </Button>
                   </CardContent>
                 </Card>
               )
