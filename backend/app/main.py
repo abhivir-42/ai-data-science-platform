@@ -18,12 +18,21 @@ async def lifespan(app: FastAPI):
     """Application lifespan manager"""
     # Startup
     setup_logging()
-    
+
     # Create upload directory if it doesn't exist
     os.makedirs(settings.UPLOAD_PATH, exist_ok=True)
-    
+
+    # Initialize database tables
+    try:
+        from app.core.database import init_database
+        await init_database()
+        print("✅ Database initialized successfully")
+    except Exception as e:
+        print(f"❌ Database initialization failed: {e}")
+        raise
+
     yield
-    
+
     # Shutdown
     pass
 

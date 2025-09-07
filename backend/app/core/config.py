@@ -12,8 +12,8 @@ class Settings(BaseSettings):
     """Application settings"""
     
     # Database
-    DATABASE_URL: str = "sqlite:///./ai_data_science_dev.db"
-    DATABASE_URL_DEV: str = "sqlite:///./ai_data_science_dev.db"
+    DATABASE_URL: str = "sqlite:///app.db"
+    DATABASE_URL_DEV: str = "sqlite:///app.db"
     
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"

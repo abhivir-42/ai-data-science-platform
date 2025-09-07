@@ -5,20 +5,20 @@ Workflow Execution Service for chaining AI Data Science agents
 import asyncio
 import time
 import uuid
+from datetime import datetime
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass, asdict
 from enum import Enum
 from loguru import logger
+from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.lib.uagent_client import UAgentClient
+from app.core.database import database_manager
+from app.models.session import WorkflowExecution as WorkflowExecutionModel, WorkflowStatus
 
 
-class WorkflowStatus(Enum):
-    PENDING = "pending"
-    RUNNING = "running" 
-    COMPLETED = "completed"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
+# WorkflowStatus enum imported from models
 
 
 @dataclass
@@ -56,11 +56,11 @@ class WorkflowExecution:
 
 
 class WorkflowExecutionService:
-    """Service for executing multi-agent workflows"""
+    """Service for executing multi-agent workflows with database persistence"""
     
     def __init__(self):
-        self.executions: Dict[str, WorkflowExecution] = {}
         self.uagent_client = UAgentClient()
+        # Note: Removed in-memory executions dict - now using database
     
     async def execute_workflow(
         self, 
@@ -83,27 +83,58 @@ class WorkflowExecutionService:
         # Create workflow execution
         execution_id = str(uuid.uuid4())
         workflow_steps = [
-            WorkflowStep(
+            asdict(WorkflowStep(
                 id=str(uuid.uuid4()),
                 agent_type=step['agent_type'],
                 parameters=step.get('parameters', {})
-            ) 
+            ))
             for step in steps
         ]
         
-        execution = WorkflowExecution(
+        # Create database record
+        execution_model = WorkflowExecutionModel(
             id=execution_id,
             name=workflow_name,
-            steps=workflow_steps
+            steps=workflow_steps,
+            status=WorkflowStatus.PENDING
         )
         
-        self.executions[execution_id] = execution
+        async with database_manager.async_session_maker() as db_session:
+            db_session.add(execution_model)
+            await db_session.commit()
+            await db_session.refresh(execution_model)
+        
+        # Convert to dataclass for compatibility
+        execution = WorkflowExecution(
+            id=execution_model.id,
+            name=execution_model.name,
+            steps=[WorkflowStep(**step) for step in execution_model.steps],
+            status=WorkflowStatus(execution_model.status),
+            created_at=execution_model.created_at.timestamp() if execution_model.created_at else time.time(),
+            started_at=execution_model.started_at.timestamp() if execution_model.started_at else None,
+            completed_at=execution_model.completed_at.timestamp() if execution_model.completed_at else None,
+            total_execution_time=execution_model.total_execution_time,
+            current_step_index=execution_model.current_step_index,
+            results=execution_model.results or {}
+        )
         
         logger.info(f"Starting workflow execution: {workflow_name} (ID: {execution_id})")
         
         try:
             execution.status = WorkflowStatus.RUNNING
             execution.started_at = time.time()
+            
+            # Update database with running status
+            async with database_manager.async_session_maker() as db_session:
+                await db_session.execute(
+                    update(WorkflowExecutionModel)
+                    .where(WorkflowExecutionModel.id == execution_id)
+                    .values(
+                        status=WorkflowStatus.RUNNING,
+                        started_at=datetime.utcfromtimestamp(execution.started_at)
+                    )
+                )
+                await db_session.commit()
             
             # Execute each step in sequence
             current_data = initial_data
@@ -115,6 +146,20 @@ class WorkflowExecutionService:
                 step.status = WorkflowStatus.RUNNING
                 step_start_time = time.time()
                 
+                # Update database with current step status
+                execution.steps[i] = step  # Update the step in the execution
+                async with database_manager.async_session_maker() as db_session:
+                    steps_data = [asdict(s) for s in execution.steps]
+                    await db_session.execute(
+                        update(WorkflowExecutionModel)
+                        .where(WorkflowExecutionModel.id == execution_id)
+                        .values(
+                            current_step_index=i,
+                            steps=steps_data
+                        )
+                    )
+                    await db_session.commit()
+                
                 try:
                     # Execute the agent step
                     step_result = await self._execute_agent_step(step, current_data)
@@ -123,6 +168,17 @@ class WorkflowExecutionService:
                     step.session_id = step_result.get('session_id')
                     step.status = WorkflowStatus.COMPLETED
                     step.execution_time_seconds = time.time() - step_start_time
+                    
+                    # Update database with completed step
+                    execution.steps[i] = step
+                    async with database_manager.async_session_maker() as db_session:
+                        steps_data = [asdict(s) for s in execution.steps]
+                        await db_session.execute(
+                            update(WorkflowExecutionModel)
+                            .where(WorkflowExecutionModel.id == execution_id)
+                            .values(steps=steps_data)
+                        )
+                        await db_session.commit()
                     
                     # Update current data for next step
                     current_data = await self._prepare_data_for_next_step(step, step_result)
@@ -136,10 +192,25 @@ class WorkflowExecutionService:
                     
                     logger.error(f"Step {i+1} failed: {e}")
                     
-                    # Fail the entire workflow
+                    # Update database with failed step and workflow
                     execution.status = WorkflowStatus.FAILED
                     execution.completed_at = time.time()
                     execution.total_execution_time = execution.completed_at - execution.started_at
+                    execution.steps[i] = step
+                    
+                    async with database_manager.async_session_maker() as db_session:
+                        steps_data = [asdict(s) for s in execution.steps]
+                        await db_session.execute(
+                            update(WorkflowExecutionModel)
+                            .where(WorkflowExecutionModel.id == execution_id)
+                            .values(
+                                status=WorkflowStatus.FAILED,
+                                completed_at=datetime.utcfromtimestamp(execution.completed_at),
+                                total_execution_time=execution.total_execution_time,
+                                steps=steps_data
+                            )
+                        )
+                        await db_session.commit()
                     
                     return execution
             
@@ -151,6 +222,20 @@ class WorkflowExecutionService:
             # Gather final results
             execution.results = await self._gather_workflow_results(execution)
             
+            # Update database with completion status
+            async with database_manager.async_session_maker() as db_session:
+                await db_session.execute(
+                    update(WorkflowExecutionModel)
+                    .where(WorkflowExecutionModel.id == execution_id)
+                    .values(
+                        status=WorkflowStatus.COMPLETED,
+                        completed_at=datetime.utcfromtimestamp(execution.completed_at),
+                        total_execution_time=execution.total_execution_time,
+                        results=execution.results
+                    )
+                )
+                await db_session.commit()
+            
             logger.info(f"Workflow {workflow_name} completed successfully in {execution.total_execution_time:.2f}s")
             
         except Exception as e:
@@ -158,6 +243,19 @@ class WorkflowExecutionService:
             execution.completed_at = time.time()
             if execution.started_at:
                 execution.total_execution_time = execution.completed_at - execution.started_at
+            
+            # Update database with failure status
+            async with database_manager.async_session_maker() as db_session:
+                await db_session.execute(
+                    update(WorkflowExecutionModel)
+                    .where(WorkflowExecutionModel.id == execution_id)
+                    .values(
+                        status=WorkflowStatus.FAILED,
+                        completed_at=datetime.utcfromtimestamp(execution.completed_at),
+                        total_execution_time=execution.total_execution_time
+                    )
+                )
+                await db_session.commit()
             
             logger.error(f"Workflow {workflow_name} failed: {e}")
         
@@ -415,17 +513,94 @@ class WorkflowExecutionService:
         
         return results
     
-    def get_execution(self, execution_id: str) -> Optional[WorkflowExecution]:
-        """Get workflow execution by ID"""
-        return self.executions.get(execution_id)
+    async def get_execution(self, execution_id: str) -> Optional[WorkflowExecution]:
+        """Get workflow execution by ID from database"""
+        try:
+            async with database_manager.async_session_maker() as db_session:
+                stmt = select(WorkflowExecutionModel).where(WorkflowExecutionModel.id == execution_id)
+                result = await db_session.execute(stmt)
+                execution_model = result.scalar_one_or_none()
+
+                if not execution_model:
+                    return None
+
+                # Convert to dataclass for compatibility
+                steps = []
+                for step_data in execution_model.steps:
+                    try:
+                        # Handle different step formats that might exist
+                        if isinstance(step_data, dict):
+                            steps.append(WorkflowStep(**step_data))
+                        else:
+                            # If step_data is already a WorkflowStep, convert it
+                            steps.append(step_data)
+                    except Exception as step_error:
+                        logger.warning(f"Failed to parse step data: {step_error}, skipping step")
+                        continue
+
+                return WorkflowExecution(
+                    id=execution_model.id,
+                    name=execution_model.name,
+                    steps=steps,
+                    status=WorkflowStatus(execution_model.status),
+                    created_at=execution_model.created_at.timestamp() if execution_model.created_at else time.time(),
+                    started_at=execution_model.started_at.timestamp() if execution_model.started_at else None,
+                    completed_at=execution_model.completed_at.timestamp() if execution_model.completed_at else None,
+                    total_execution_time=execution_model.total_execution_time,
+                    current_step_index=execution_model.current_step_index,
+                    results=execution_model.results or {}
+                )
+        except Exception as e:
+            logger.error(f"Failed to get execution {execution_id}: {e}")
+            return None
     
-    def list_executions(self) -> List[WorkflowExecution]:
-        """List all workflow executions"""
-        return list(self.executions.values())
+    async def list_executions(self) -> List[WorkflowExecution]:
+        """List all workflow executions from database"""
+        try:
+            async with database_manager.async_session_maker() as db_session:
+                stmt = select(WorkflowExecutionModel).order_by(WorkflowExecutionModel.created_at.desc())
+                result = await db_session.execute(stmt)
+                execution_models = result.scalars().all()
+
+                executions = []
+                for model in execution_models:
+                    try:
+                        # Parse steps safely
+                        steps = []
+                        for step_data in model.steps:
+                            try:
+                                if isinstance(step_data, dict):
+                                    steps.append(WorkflowStep(**step_data))
+                                else:
+                                    steps.append(step_data)
+                            except Exception as step_error:
+                                logger.warning(f"Failed to parse step for execution {model.id}: {step_error}")
+                                continue
+
+                        executions.append(WorkflowExecution(
+                            id=model.id,
+                            name=model.name,
+                            steps=steps,
+                            status=WorkflowStatus(model.status),
+                            created_at=model.created_at.timestamp() if model.created_at else time.time(),
+                            started_at=model.started_at.timestamp() if model.started_at else None,
+                            completed_at=model.completed_at.timestamp() if model.completed_at else None,
+                            total_execution_time=model.total_execution_time,
+                            current_step_index=model.current_step_index,
+                            results=model.results or {}
+                        ))
+                    except Exception as exec_error:
+                        logger.error(f"Failed to parse execution {model.id}: {exec_error}")
+                        continue
+
+                return executions
+        except Exception as e:
+            logger.error(f"Failed to list executions: {e}")
+            return []
     
-    def get_execution_status(self, execution_id: str) -> Optional[Dict[str, Any]]:
-        """Get execution status"""
-        execution = self.executions.get(execution_id)
+    async def get_execution_status(self, execution_id: str) -> Optional[Dict[str, Any]]:
+        """Get execution status from database"""
+        execution = await self.get_execution(execution_id)
         if not execution:
             return None
         
