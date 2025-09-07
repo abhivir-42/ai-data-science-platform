@@ -54,36 +54,14 @@ from uagents import Agent, Context, Model
 from uagents.setup import fund_agent_if_low
 from langchain_openai import ChatOpenAI
 from app.agents.ml_agents import H2OMLAgent
+from app.services.session_service import SessionService
 
 # ============================================================================
-# Session Management (In-Memory Store)
+# Session Management (Using SessionService)
 # ============================================================================
 
-class SessionStore:
-    def __init__(self):
-        self._sessions = {}
-        self._session_timeout_hours = 24
-    
-    def create_session(self, agent_instance, metadata=None):
-        session_id = str(uuid.uuid4())
-        self._sessions[session_id] = {
-            "agent": agent_instance,
-            "created_at": time.time(),
-            "metadata": metadata or {}
-        }
-        return session_id
-    
-    def get_session(self, session_id):
-        return self._sessions.get(session_id)
-    
-    def delete_session(self, session_id):
-        if session_id in self._sessions:
-            del self._sessions[session_id]
-            return True
-        return False
-
-# Global session store
-session_store = SessionStore()
+# Global session service
+session_service = SessionService()
 
 # ============================================================================
 # JSON Serialization Utilities
@@ -107,18 +85,81 @@ def make_json_serializable(data):
         return data
 
 def dataframe_to_json_safe(df):
-    """Convert DataFrame to JSON-safe format"""
-    if df is None or df.empty:
+    """Convert DataFrame or data object to JSON-safe format"""
+    if df is None:
         return {"records": [], "columns": []}
-    
-    records = df.to_dict(orient="records")
-    cleaned_records = [make_json_serializable(record) for record in records]
-    
-    return {
-        "records": cleaned_records,
-        "columns": list(map(str, df.columns.tolist())),
-        "shape": [int(df.shape[0]), int(df.shape[1])]
-    }
+
+    # Handle actual pandas DataFrame
+    if hasattr(df, 'empty') and hasattr(df, 'to_dict'):
+        if df.empty:
+            return {"records": [], "columns": []}
+
+        records = df.to_dict(orient="records")
+        cleaned_records = [make_json_serializable(record) for record in records]
+
+        return {
+            "records": cleaned_records,
+            "columns": list(map(str, df.columns.tolist())),
+            "shape": [int(df.shape[0]), int(df.shape[1])]
+        }
+
+    # Handle dictionary format (from proxy objects)
+    elif isinstance(df, dict):
+        if "records" in df:
+            # Already in the right format
+            records = df["records"]
+            cleaned_records = [make_json_serializable(record) for record in records]
+            return {
+                "records": cleaned_records,
+                "columns": df.get("columns", []),
+                "shape": df.get("shape", [len(records), len(records[0]) if records else 0])
+            }
+        else:
+            # Convert dict to records format
+            if not df:
+                return {"records": [], "columns": []}
+
+            # Assume it's a single record or list of records
+            if isinstance(list(df.values())[0], list):
+                # Multiple records: {"col1": [val1, val2], "col2": [val1, val2]}
+                columns = list(df.keys())
+                num_records = len(df[columns[0]]) if columns else 0
+                records = []
+                for i in range(num_records):
+                    record = {col: df[col][i] for col in columns}
+                    records.append(make_json_serializable(record))
+
+                return {
+                    "records": records,
+                    "columns": columns,
+                    "shape": [num_records, len(columns)]
+                }
+            else:
+                # Single record: {"col1": val1, "col2": val2}
+                record = make_json_serializable(df)
+                return {
+                    "records": [record],
+                    "columns": list(df.keys()),
+                    "shape": [1, len(df)]
+                }
+
+    # Handle list format
+    elif isinstance(df, list):
+        if not df:
+            return {"records": [], "columns": []}
+
+        cleaned_records = [make_json_serializable(record) for record in df]
+        columns = list(df[0].keys()) if df and isinstance(df[0], dict) else []
+
+        return {
+            "records": cleaned_records,
+            "columns": columns,
+            "shape": [len(df), len(columns)]
+        }
+
+    # Fallback for other types
+    else:
+        return {"records": [], "columns": [], "error": f"Unsupported data type: {type(df)}"}
 
 def _create_h2o_ml_agent():
     """Create H2OMLAgent instance"""
@@ -152,6 +193,19 @@ class HealthResponse(Model):
 
 class TrainModelRequest(Model):
     data: Dict[str, List[Any]]
+    target_variable: str
+    user_instructions: Optional[str] = None
+    max_retries: int = 3
+    max_runtime_secs: int = 300
+    cv_folds: int = 5
+    balance_classes: bool = True
+    exclude_algos: List[str] = ["DeepLearning"]
+    max_models: int = 20
+    seed: int = 42
+
+class TrainModelFromSessionRequest(Model):
+    """Request model for training ML model from session data"""
+    source_session_id: str
     target_variable: str
     user_instructions: Optional[str] = None
     max_retries: int = 3
@@ -265,9 +319,10 @@ async def train_model(ctx: Context, req: TrainModelRequest) -> SessionResponse:
         
         execution_time = time.time() - start_time
         
-        # Create session
-        session_id = session_store.create_session(
+        # Create session using SessionService
+        session_id = await session_service.create_session(
             ml_agent,
+            "training",
             metadata={
                 "operation": "train_model",
                 "target_variable": req.target_variable,
@@ -288,6 +343,178 @@ async def train_model(ctx: Context, req: TrainModelRequest) -> SessionResponse:
         return SessionResponse(
             success=True,
             message="H2O ML model training completed successfully",
+            session_id=session_id,
+            execution_time_seconds=execution_time
+        )
+        
+    except Exception as e:
+        return SessionResponse(
+            success=False,
+            message="H2O ML training failed",
+            session_id="",
+            error=str(e)
+        )
+
+@agent.on_rest_post("/train-model-from-session", TrainModelFromSessionRequest, SessionResponse)
+async def train_model_from_session(ctx: Context, req: TrainModelFromSessionRequest) -> SessionResponse:
+    """Train ML model with H2O AutoML using data from a previous session"""
+    try:
+        start_time = time.time()
+        
+        # Get the source session
+        session_result = await session_service.get_session(req.source_session_id)
+        if not session_result:
+            return SessionResponse(
+                success=False,
+                message="Source session not found",
+                session_id="",
+                error=f"Session {req.source_session_id} not found"
+            )
+        
+        # Extract the agent instance from the session result
+        source_agent = session_result.get("agent")
+        if not source_agent:
+            return SessionResponse(
+                success=False,
+                message="No agent found in source session",
+                session_id="",
+                error="Source session does not contain an agent instance"
+            )
+        
+        # Debug logging
+        print(f"DEBUG: Source agent type: {type(source_agent)}")
+        print(f"DEBUG: Source agent content: {source_agent}")
+        print(f"DEBUG: Source agent dir: {[attr for attr in dir(source_agent) if not attr.startswith('_')]}")
+        
+        if isinstance(source_agent, dict):
+            print(f"DEBUG: Source agent is dict with keys: {list(source_agent.keys())}")
+            if "agent_results" in source_agent:
+                print(f"DEBUG: Agent results: {source_agent['agent_results']}")
+            if "response" in source_agent:
+                print(f"DEBUG: Response: {source_agent['response']}")
+        
+        # Extract data from the source agent
+        df = None
+        
+        # Try different data extraction methods
+        if hasattr(source_agent, 'get_data_raw'):
+            df = source_agent.get_data_raw()
+        elif hasattr(source_agent, 'get_data_cleaned'):
+            df = source_agent.get_data_cleaned()
+        elif hasattr(source_agent, 'get_artifacts'):
+            artifacts = source_agent.get_artifacts()
+            if isinstance(artifacts, dict) and "records" in artifacts:
+                df = pd.DataFrame(artifacts["records"])
+            elif isinstance(artifacts, dict) and "data" in artifacts:
+                # Handle legacy data format
+                df = pd.DataFrame(artifacts["data"])
+            else:
+                df = pd.DataFrame(artifacts)
+        
+        # If still no data, try to access the agent's response directly
+        if df is None and hasattr(source_agent, 'response'):
+            response = source_agent.response
+            if isinstance(response, dict):
+                if "data_loader_artifacts" in response:
+                    artifacts = response["data_loader_artifacts"]
+                    if isinstance(artifacts, dict) and "records" in artifacts:
+                        df = pd.DataFrame(artifacts["records"])
+                    elif isinstance(artifacts, dict) and "data" in artifacts:
+                        # Handle legacy data format
+                        df = pd.DataFrame(artifacts["data"])
+                elif "data" in response:
+                    df = pd.DataFrame(response["data"])
+        
+        # If still no data, try to access the agent's extracted results
+        if df is None and hasattr(source_agent, 'agent_results'):
+            agent_results = source_agent.agent_results
+            if isinstance(agent_results, dict):
+                if "artifacts" in agent_results:
+                    artifacts = agent_results["artifacts"]
+                    if isinstance(artifacts, dict) and "records" in artifacts:
+                        df = pd.DataFrame(artifacts["records"])
+                    elif isinstance(artifacts, dict) and "data" in artifacts:
+                        # Handle legacy data format
+                        df = pd.DataFrame(artifacts["data"])
+                elif "response" in agent_results:
+                    response = agent_results["response"]
+                    if isinstance(response, dict) and "data_loader_artifacts" in response:
+                        artifacts = response["data_loader_artifacts"]
+                        if isinstance(artifacts, dict) and "records" in artifacts:
+                            df = pd.DataFrame(artifacts["records"])
+                        elif isinstance(artifacts, dict) and "data" in artifacts:
+                            # Handle legacy data format
+                            df = pd.DataFrame(artifacts["data"])
+        
+        if df is None:
+            return SessionResponse(
+                success=False,
+                message="No data found in source session",
+                session_id="",
+                error="Source session contains no usable data. Available methods: " + 
+                      ", ".join([attr for attr in dir(source_agent) if not attr.startswith('_')])
+            )
+        
+        if df is None or df.empty:
+            return SessionResponse(
+                success=False,
+                message="Empty dataset in source session",
+                session_id="",
+                error="Source session contains no data"
+            )
+        
+        if req.target_variable not in df.columns:
+            return SessionResponse(
+                success=False,
+                message="Target variable not found in dataset",
+                session_id="",
+                error=f"Target variable '{req.target_variable}' not found in columns: {list(df.columns)}"
+            )
+        
+        # Create ML agent instance
+        ml_agent = _create_h2o_ml_agent()
+        
+        # Execute H2O ML training
+        ml_agent.invoke_agent(
+            data_raw=df,
+            user_instructions=req.user_instructions,
+            target_variable=req.target_variable,
+            max_retries=req.max_retries,
+            max_runtime_secs=req.max_runtime_secs,
+            cv_folds=req.cv_folds,
+            balance_classes=req.balance_classes,
+            exclude_algos=req.exclude_algos,
+            max_models=req.max_models,
+            seed=req.seed
+        )
+        
+        execution_time = time.time() - start_time
+        
+        # Create session using SessionService
+        session_id = await session_service.create_session(
+            ml_agent,
+            "training",
+            metadata={
+                "operation": "train_model_from_session",
+                "source_session_id": req.source_session_id,
+                "target_variable": req.target_variable,
+                "user_instructions": req.user_instructions,
+                "original_shape": list(df.shape),
+                "execution_time": execution_time,
+                "h2o_params": {
+                    "max_runtime_secs": req.max_runtime_secs,
+                    "cv_folds": req.cv_folds,
+                    "balance_classes": req.balance_classes,
+                    "exclude_algos": req.exclude_algos,
+                    "max_models": req.max_models,
+                    "seed": req.seed
+                }
+            }
+        )
+        
+        return SessionResponse(
+            success=True,
+            message="H2O ML model training completed successfully using session data",
             session_id=session_id,
             execution_time_seconds=execution_time
         )
@@ -354,9 +581,10 @@ async def train_model_csv(ctx: Context, req: TrainModelCsvRequest) -> SessionRes
         
         execution_time = time.time() - start_time
         
-        # Create session
-        session_id = session_store.create_session(
+        # Create session using SessionService
+        session_id = await session_service.create_session(
             ml_agent,
+            "training",
             metadata={
                 "operation": "train_model_csv",
                 "filename": req.filename,
@@ -398,15 +626,21 @@ async def train_model_csv(ctx: Context, req: TrainModelCsvRequest) -> SessionRes
 async def get_leaderboard(ctx: Context, session_id: str) -> LeaderboardResponse:
     """Get H2O AutoML leaderboard from session"""
     try:
-        session = session_store.get_session(session_id)
-        if not session:
+        session_result = await session_service.get_session(session_id)
+        if not session_result:
             return LeaderboardResponse(
                 success=False,
                 message="Session not found",
                 error=f"Session {session_id} not found or expired"
             )
         
-        ml_agent = session["agent"]
+        ml_agent = session_result.get("agent")
+        if not ml_agent:
+            return LeaderboardResponse(
+                success=False,
+                message="No agent found in session",
+                error="Session does not contain an agent instance"
+            )
         leaderboard = ml_agent.get_leaderboard()
         
         if leaderboard is None:
@@ -440,15 +674,21 @@ async def get_leaderboard(ctx: Context, session_id: str) -> LeaderboardResponse:
 async def get_best_model_id(ctx: Context, session_id: str) -> ModelInfoResponse:
     """Get best model ID from session"""
     try:
-        session = session_store.get_session(session_id)
-        if not session:
+        session_result = await session_service.get_session(session_id)
+        if not session_result:
             return ModelInfoResponse(
                 success=False,
                 message="Session not found",
                 error=f"Session {session_id} not found or expired"
             )
         
-        ml_agent = session["agent"]
+        ml_agent = session_result.get("agent")
+        if not ml_agent:
+            return ModelInfoResponse(
+                success=False,
+                message="No agent found in session",
+                error="Session does not contain an agent instance"
+            )
         best_model_id = ml_agent.get_best_model_id()
         
         if not best_model_id:
@@ -472,18 +712,24 @@ async def get_best_model_id(ctx: Context, session_id: str) -> ModelInfoResponse:
         )
 
 @agent.on_rest_get("/session/{session_id}/model-path", ModelInfoResponse)
-async def get_model_path(ctx: Context, session_id: str) -> ModelInfoResponse:
+async def get_session_model_path(ctx: Context, session_id: str) -> ModelInfoResponse:
     """Get saved model file path from session"""
     try:
-        session = session_store.get_session(session_id)
-        if not session:
+        session_result = await session_service.get_session(session_id)
+        if not session_result:
             return ModelInfoResponse(
                 success=False,
                 message="Session not found",
                 error=f"Session {session_id} not found or expired"
             )
         
-        ml_agent = session["agent"]
+        ml_agent = session_result.get("agent")
+        if not ml_agent:
+            return ModelInfoResponse(
+                success=False,
+                message="No agent found in session",
+                error="Session does not contain an agent instance"
+            )
         model_path = ml_agent.get_model_path()
         
         if not model_path:
@@ -510,15 +756,21 @@ async def get_model_path(ctx: Context, session_id: str) -> ModelInfoResponse:
 async def get_training_function(ctx: Context, session_id: str) -> CodeResponse:
     """Get generated H2O training function from session"""
     try:
-        session = session_store.get_session(session_id)
-        if not session:
+        session_result = await session_service.get_session(session_id)
+        if not session_result:
             return CodeResponse(
                 success=False,
                 message="Session not found",
                 error=f"Session {session_id} not found or expired"
             )
         
-        ml_agent = session["agent"]
+        ml_agent = session_result.get("agent")
+        if not ml_agent:
+            return CodeResponse(
+                success=False,
+                message="No agent found in session",
+                error="Session does not contain an agent instance"
+            )
         training_function = ml_agent.get_h2o_train_function()
         
         if not training_function:
@@ -546,15 +798,21 @@ async def get_training_function(ctx: Context, session_id: str) -> CodeResponse:
 async def get_ml_steps(ctx: Context, session_id: str) -> GenericResponse:
     """Get recommended ML steps from session"""
     try:
-        session = session_store.get_session(session_id)
-        if not session:
+        session_result = await session_service.get_session(session_id)
+        if not session_result:
             return GenericResponse(
                 success=False,
                 message="Session not found",
                 error=f"Session {session_id} not found or expired"
             )
         
-        ml_agent = session["agent"]
+        ml_agent = session_result.get("agent")
+        if not ml_agent:
+            return GenericResponse(
+                success=False,
+                message="No agent found in session",
+                error="Session does not contain an agent instance"
+            )
         ml_steps = ml_agent.get_recommended_ml_steps()
         
         return GenericResponse(
@@ -574,15 +832,21 @@ async def get_ml_steps(ctx: Context, session_id: str) -> GenericResponse:
 async def get_original_data(ctx: Context, session_id: str) -> DataResponse:
     """Get original training dataset from session"""
     try:
-        session = session_store.get_session(session_id)
-        if not session:
+        session_result = await session_service.get_session(session_id)
+        if not session_result:
             return DataResponse(
                 success=False,
                 message="Session not found",
                 error=f"Session {session_id} not found or expired"
             )
         
-        ml_agent = session["agent"]
+        ml_agent = session_result.get("agent")
+        if not ml_agent:
+            return DataResponse(
+                success=False,
+                message="No agent found in session",
+                error="Session does not contain an agent instance"
+            )
         original_df = ml_agent.get_data_raw()
         
         if original_df is None:
@@ -611,15 +875,21 @@ async def get_original_data(ctx: Context, session_id: str) -> DataResponse:
 async def get_workflow_summary(ctx: Context, session_id: str) -> GenericResponse:
     """Get training workflow summary from session"""
     try:
-        session = session_store.get_session(session_id)
-        if not session:
+        session_result = await session_service.get_session(session_id)
+        if not session_result:
             return GenericResponse(
                 success=False,
                 message="Session not found",
                 error=f"Session {session_id} not found or expired"
             )
         
-        ml_agent = session["agent"]
+        ml_agent = session_result.get("agent")
+        if not ml_agent:
+            return GenericResponse(
+                success=False,
+                message="No agent found in session",
+                error="Session does not contain an agent instance"
+            )
         workflow_summary = ml_agent.get_workflow_summary()
         
         return GenericResponse(
@@ -639,15 +909,21 @@ async def get_workflow_summary(ctx: Context, session_id: str) -> GenericResponse
 async def get_logs(ctx: Context, session_id: str) -> GenericResponse:
     """Get training execution logs from session"""
     try:
-        session = session_store.get_session(session_id)
-        if not session:
+        session_result = await session_service.get_session(session_id)
+        if not session_result:
             return GenericResponse(
                 success=False,
                 message="Session not found",
                 error=f"Session {session_id} not found or expired"
             )
         
-        ml_agent = session["agent"]
+        ml_agent = session_result.get("agent")
+        if not ml_agent:
+            return GenericResponse(
+                success=False,
+                message="No agent found in session",
+                error="Session does not contain an agent instance"
+            )
         log_summary = ml_agent.get_log_summary()
         
         return GenericResponse(
@@ -667,15 +943,21 @@ async def get_logs(ctx: Context, session_id: str) -> GenericResponse:
 async def get_full_response(ctx: Context, session_id: str) -> GenericResponse:
     """Get complete agent response from session"""
     try:
-        session = session_store.get_session(session_id)
-        if not session:
+        session_result = await session_service.get_session(session_id)
+        if not session_result:
             return GenericResponse(
                 success=False,
                 message="Session not found",
                 error=f"Session {session_id} not found or expired"
             )
         
-        ml_agent = session["agent"]
+        ml_agent = session_result.get("agent")
+        if not ml_agent:
+            return GenericResponse(
+                success=False,
+                message="No agent found in session",
+                error="Session does not contain an agent instance"
+            )
         response = ml_agent.get_response()
         
         # Make response JSON serializable
@@ -720,15 +1002,21 @@ class DeleteSessionRequest(Model):
 async def get_leaderboard_post(ctx: Context, req: SessionRequest) -> LeaderboardResponse:
     """Get leaderboard from session (POST version)"""
     try:
-        session = session_store.get_session(req.session_id)
-        if not session:
+        session_result = await session_service.get_session(req.session_id)
+        if not session_result:
             return LeaderboardResponse(
                 success=False,
                 message="Session not found",
                 error=f"Session {req.session_id} not found or expired"
             )
         
-        ml_agent = session["agent"]
+        ml_agent = session_result.get("agent")
+        if not ml_agent:
+            return LeaderboardResponse(
+                success=False,
+                message="No agent found in session",
+                error="Session does not contain an agent instance"
+            )
         
         if ml_agent.response and "leaderboard" in ml_agent.response:
             return LeaderboardResponse(
@@ -754,15 +1042,21 @@ async def get_leaderboard_post(ctx: Context, req: SessionRequest) -> Leaderboard
 async def get_training_function_post(ctx: Context, req: SessionRequest) -> CodeResponse:
     """Get training function from session (POST version)"""
     try:
-        session = session_store.get_session(req.session_id)
-        if not session:
+        session_result = await session_service.get_session(req.session_id)
+        if not session_result:
             return CodeResponse(
                 success=False,
                 message="Session not found",
                 error=f"Session {req.session_id} not found or expired"
             )
         
-        ml_agent = session["agent"]
+        ml_agent = session_result.get("agent")
+        if not ml_agent:
+            return CodeResponse(
+                success=False,
+                message="No agent found in session",
+                error="Session does not contain an agent instance"
+            )
         
         if ml_agent.response and "training_function" in ml_agent.response:
             return CodeResponse(
@@ -788,15 +1082,21 @@ async def get_training_function_post(ctx: Context, req: SessionRequest) -> CodeR
 async def get_ml_steps_post(ctx: Context, req: SessionRequest) -> GenericResponse:
     """Get ML recommendations from session (POST version)"""
     try:
-        session = session_store.get_session(req.session_id)
-        if not session:
+        session_result = await session_service.get_session(req.session_id)
+        if not session_result:
             return GenericResponse(
                 success=False,
                 message="Session not found",
                 error=f"Session {req.session_id} not found or expired"
             )
         
-        ml_agent = session["agent"]
+        ml_agent = session_result.get("agent")
+        if not ml_agent:
+            return GenericResponse(
+                success=False,
+                message="No agent found in session",
+                error="Session does not contain an agent instance"
+            )
         
         if ml_agent.response and "ml_steps" in ml_agent.response:
             return GenericResponse(
@@ -822,15 +1122,21 @@ async def get_ml_steps_post(ctx: Context, req: SessionRequest) -> GenericRespons
 async def get_original_data_post(ctx: Context, req: SessionRequest) -> DataResponse:
     """Get original training dataset from session (POST version)"""
     try:
-        session = session_store.get_session(req.session_id)
-        if not session:
+        session_result = await session_service.get_session(req.session_id)
+        if not session_result:
             return DataResponse(
                 success=False,
                 message="Session not found",
                 error=f"Session {req.session_id} not found or expired"
             )
         
-        ml_agent = session["agent"]
+        ml_agent = session_result.get("agent")
+        if not ml_agent:
+            return DataResponse(
+                success=False,
+                message="No agent found in session",
+                error="Session does not contain an agent instance"
+            )
         original_df = ml_agent.get_data_raw()
         
         if original_df is None:
@@ -859,15 +1165,21 @@ async def get_original_data_post(ctx: Context, req: SessionRequest) -> DataRespo
 async def get_logs_post(ctx: Context, req: SessionRequest) -> GenericResponse:
     """Get training execution logs from session (POST version)"""
     try:
-        session = session_store.get_session(req.session_id)
-        if not session:
+        session_result = await session_service.get_session(req.session_id)
+        if not session_result:
             return GenericResponse(
                 success=False,
                 message="Session not found",
                 error=f"Session {req.session_id} not found or expired"
             )
         
-        ml_agent = session["agent"]
+        ml_agent = session_result.get("agent")
+        if not ml_agent:
+            return GenericResponse(
+                success=False,
+                message="No agent found in session",
+                error="Session does not contain an agent instance"
+            )
         
         # Get logs from the agent
         logs = ml_agent.get_logs() if hasattr(ml_agent, 'get_logs') else []
@@ -889,15 +1201,21 @@ async def get_logs_post(ctx: Context, req: SessionRequest) -> GenericResponse:
 async def get_best_model_id_post(ctx: Context, req: SessionRequest) -> ModelInfoResponse:
     """Get best model ID from session (POST version)"""
     try:
-        session = session_store.get_session(req.session_id)
-        if not session:
+        session_result = await session_service.get_session(req.session_id)
+        if not session_result:
             return ModelInfoResponse(
                 success=False,
                 message="Session not found",
                 error=f"Session {req.session_id} not found or expired"
             )
         
-        ml_agent = session["agent"]
+        ml_agent = session_result.get("agent")
+        if not ml_agent:
+            return ModelInfoResponse(
+                success=False,
+                message="No agent found in session",
+                error="Session does not contain an agent instance"
+            )
         
         if ml_agent.response and "best_model_id" in ml_agent.response:
             return ModelInfoResponse(
@@ -923,15 +1241,21 @@ async def get_best_model_id_post(ctx: Context, req: SessionRequest) -> ModelInfo
 async def get_model_path_post(ctx: Context, req: SessionRequest) -> ModelInfoResponse:
     """Get model path from session (POST version)"""
     try:
-        session = session_store.get_session(req.session_id)
-        if not session:
+        session_result = await session_service.get_session(req.session_id)
+        if not session_result:
             return ModelInfoResponse(
                 success=False,
                 message="Session not found",
                 error=f"Session {req.session_id} not found or expired"
             )
         
-        ml_agent = session["agent"]
+        ml_agent = session_result.get("agent")
+        if not ml_agent:
+            return ModelInfoResponse(
+                success=False,
+                message="No agent found in session",
+                error="Session does not contain an agent instance"
+            )
         
         if ml_agent.response and "model_path" in ml_agent.response:
             return ModelInfoResponse(
@@ -957,15 +1281,21 @@ async def get_model_path_post(ctx: Context, req: SessionRequest) -> ModelInfoRes
 async def get_workflow_summary_post(ctx: Context, req: SessionRequest) -> GenericResponse:
     """Get workflow summary from session (POST version)"""
     try:
-        session = session_store.get_session(req.session_id)
-        if not session:
+        session_result = await session_service.get_session(req.session_id)
+        if not session_result:
             return GenericResponse(
                 success=False,
                 message="Session not found",
                 error=f"Session {req.session_id} not found or expired"
             )
         
-        ml_agent = session["agent"]
+        ml_agent = session_result.get("agent")
+        if not ml_agent:
+            return GenericResponse(
+                success=False,
+                message="No agent found in session",
+                error="Session does not contain an agent instance"
+            )
         
         if ml_agent.response and "workflow_summary" in ml_agent.response:
             return GenericResponse(
@@ -991,7 +1321,7 @@ async def get_workflow_summary_post(ctx: Context, req: SessionRequest) -> Generi
 async def delete_session(ctx: Context, req: DeleteSessionRequest) -> GenericResponse:
     """Delete a session"""
     try:
-        deleted = session_store.delete_session(req.session_id)
+        deleted = await session_service.delete_session(req.session_id)
         
         if not deleted:
             return GenericResponse(

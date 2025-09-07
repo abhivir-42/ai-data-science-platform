@@ -328,7 +328,17 @@ export class UAgentClient {
   // ML Training operations (8008)
   async trainModel(params: TrainModelParams): Promise<SessionResponse> {
     if (params.session_id) {
-      return this.request<SessionResponse>('/train-model', params);
+      return this.request<SessionResponse>('/train-model-from-session', {
+        source_session_id: params.session_id,
+        target_variable: params.target_variable,
+        user_instructions: params.user_instructions,
+        max_runtime_secs: params.max_runtime_secs,
+        cv_folds: params.cv_folds,
+        balance_classes: params.balance_classes,
+        max_models: params.max_models,
+        exclude_algos: params.exclude_algos,
+        seed: params.seed,
+      });
     } else {
       return this.request<SessionResponse>('/train-model-csv', params);
     }

@@ -52,36 +52,23 @@ from uagents import Agent, Context, Model
 from uagents.setup import fund_agent_if_low
 from langchain_openai import ChatOpenAI
 from app.agents import MLPredictionAgent
+from app.services.session_service import session_service
+from app.core.database import init_database
 
 # ============================================================================
-# Session Management (In-Memory Store)
+# Database Session Management (Replaced in-memory SessionStore)
 # ============================================================================
 
-class SessionStore:
-    def __init__(self):
-        self._sessions = {}
-        self._session_timeout_hours = 24
-    
-    def create_session(self, agent_instance, metadata=None):
-        session_id = str(uuid.uuid4())
-        self._sessions[session_id] = {
-            "agent": agent_instance,
-            "created_at": time.time(),
-            "metadata": metadata or {}
-        }
-        return session_id
-    
-    def get_session(self, session_id):
-        return self._sessions.get(session_id)
-    
-    def delete_session(self, session_id):
-        if session_id in self._sessions:
-            del self._sessions[session_id]
-            return True
-        return False
+# Initialize database on startup
+import asyncio
+_db_initialized = False
 
-# Global session store
-session_store = SessionStore()
+async def ensure_database_initialized():
+    """Ensure database is initialized (called once on startup)"""
+    global _db_initialized
+    if not _db_initialized:
+        await init_database()
+        _db_initialized = True
 
 # ============================================================================
 # JSON Serialization Utilities
@@ -253,6 +240,9 @@ class DeleteSessionRequest(Model):
 async def predict_single(ctx: Context, req: PredictSingleRequest) -> SessionResponse:
     """Make single prediction and create session"""
     try:
+        # Ensure database is initialized
+        await ensure_database_initialized()
+        
         start_time = time.time()
         
         # Create agent instance
@@ -271,8 +261,9 @@ async def predict_single(ctx: Context, req: PredictSingleRequest) -> SessionResp
         execution_time = time.time() - start_time
         
         # Create session
-        session_id = session_store.create_session(
-            pred_agent,
+        session_id = await session_service.create_session(
+            agent_instance=pred_agent,
+            agent_type="prediction",
             metadata={
                 "operation": "predict_single",
                 "input_data": req.input_data,
@@ -302,6 +293,9 @@ async def predict_single(ctx: Context, req: PredictSingleRequest) -> SessionResp
 async def predict_batch(ctx: Context, req: PredictBatchRequest) -> SessionResponse:
     """Make batch predictions and create session"""
     try:
+        # Ensure database is initialized
+        await ensure_database_initialized()
+        
         start_time = time.time()
         
         # Create agent instance
@@ -320,8 +314,9 @@ async def predict_batch(ctx: Context, req: PredictBatchRequest) -> SessionRespon
         execution_time = time.time() - start_time
         
         # Create session
-        session_id = session_store.create_session(
-            pred_agent,
+        session_id = await session_service.create_session(
+            agent_instance=pred_agent,
+            agent_type="prediction",
             metadata={
                 "operation": "predict_batch",
                 "data_source": req.data_source,
@@ -369,8 +364,9 @@ async def analyze_model(ctx: Context, req: AnalyzeModelRequest) -> SessionRespon
         execution_time = time.time() - start_time
         
         # Create session
-        session_id = session_store.create_session(
-            pred_agent,
+        session_id = await session_service.create_session(
+            agent_instance=pred_agent,
+            agent_type="prediction",
             metadata={
                 "operation": "analyze_model",
                 "query": req.query,
@@ -411,8 +407,9 @@ async def load_model(ctx: Context, req: LoadModelRequest) -> SessionResponse:
         execution_time = time.time() - start_time
         
         # Create session
-        session_id = session_store.create_session(
-            pred_agent,
+        session_id = await session_service.create_session(
+            agent_instance=pred_agent,
+            agent_type="prediction",
             metadata={
                 "operation": "load_model",
                 "model_path": req.model_path,
@@ -445,7 +442,7 @@ async def load_model(ctx: Context, req: LoadModelRequest) -> SessionResponse:
 async def get_prediction_results(ctx: Context, session_id: str) -> PredictionResponse:
     """Get prediction results from session"""
     try:
-        session = session_store.get_session(session_id)
+        session = await session_service.get_session(session_id)
         if not session:
             return PredictionResponse(
                 success=False,
@@ -501,7 +498,7 @@ async def get_prediction_results(ctx: Context, session_id: str) -> PredictionRes
 async def get_batch_results(ctx: Context, session_id: str) -> BatchPredictionResponse:
     """Get batch prediction results from session"""
     try:
-        session = session_store.get_session(session_id)
+        session = await session_service.get_session(session_id)
         if not session:
             return BatchPredictionResponse(
                 success=False,
@@ -559,7 +556,7 @@ async def get_batch_results(ctx: Context, session_id: str) -> BatchPredictionRes
 async def get_model_analysis(ctx: Context, session_id: str) -> ModelAnalysisResponse:
     """Get model analysis results from session"""
     try:
-        session = session_store.get_session(session_id)
+        session = await session_service.get_session(session_id)
         if not session:
             return ModelAnalysisResponse(
                 success=False,
@@ -628,7 +625,7 @@ async def health_check(ctx: Context) -> HealthResponse:
 async def get_model_analysis_post(ctx: Context, req: SessionRequest) -> ModelAnalysisResponse:
     """Get model analysis from session (POST version)"""
     try:
-        session = session_store.get_session(req.session_id)
+        session = await session_service.get_session(req.session_id)
         if not session:
             return ModelAnalysisResponse(
                 success=False,
@@ -662,7 +659,7 @@ async def get_model_analysis_post(ctx: Context, req: SessionRequest) -> ModelAna
 async def get_prediction_results_post(ctx: Context, req: SessionRequest) -> DataResponse:
     """Get prediction results from session (POST version)"""
     try:
-        session = session_store.get_session(req.session_id)
+        session = await session_service.get_session(req.session_id)
         if not session:
             return DataResponse(
                 success=False,
@@ -700,7 +697,7 @@ async def get_prediction_results_post(ctx: Context, req: SessionRequest) -> Data
 async def get_logs_post(ctx: Context, req: SessionRequest) -> GenericResponse:
     """Get prediction execution logs from session (POST version)"""
     try:
-        session = session_store.get_session(req.session_id)
+        session = await session_service.get_session(req.session_id)
         if not session:
             return GenericResponse(
                 success=False,
@@ -730,7 +727,7 @@ async def get_logs_post(ctx: Context, req: SessionRequest) -> GenericResponse:
 async def delete_session(ctx: Context, req: DeleteSessionRequest) -> GenericResponse:
     """Delete a session"""
     try:
-        deleted = session_store.delete_session(req.session_id)
+        deleted = await session_service.delete_session(req.session_id)
         
         if not deleted:
             return GenericResponse(

@@ -55,47 +55,23 @@ from uagents import Agent, Context, Model
 from uagents.setup import fund_agent_if_low
 from langchain_openai import ChatOpenAI
 from app.agents import DataCleaningAgent
+from app.services.session_service import session_service
+from app.core.database import init_database
 
 # ============================================================================
-# Session Management (In-Memory Store)
+# Database Session Management (Replaced in-memory SessionStore)
 # ============================================================================
 
-class SessionStore:
-    def __init__(self):
-        self._sessions = {}
-        self._session_timeout_hours = 24
-        print(f"[SessionStore] Initialized session store")
-    
-    def create_session(self, agent_instance, metadata=None):
-        session_id = str(uuid.uuid4())
-        self._sessions[session_id] = {
-            "agent": agent_instance,
-            "created_at": time.time(),
-            "metadata": metadata or {}
-        }
-        print(f"[SessionStore] Created session {session_id}. Total sessions: {len(self._sessions)}")
-        return session_id
-    
-    def get_session(self, session_id):
-        session = self._sessions.get(session_id)
-        print(f"[SessionStore] Get session {session_id}: {'Found' if session else 'Not found'}. Total sessions: {len(self._sessions)}")
-        if not session:
-            print(f"[SessionStore] Available sessions: {list(self._sessions.keys())}")
-        return session
-    
-    def delete_session(self, session_id):
-        if session_id in self._sessions:
-            del self._sessions[session_id]
-            print(f"[SessionStore] Deleted session {session_id}. Total sessions: {len(self._sessions)}")
-            return True
-        return False
-    
-    def list_sessions(self):
-        """Debug method to list all sessions"""
-        return list(self._sessions.keys())
+# Initialize database on startup
+import asyncio
+_db_initialized = False
 
-# Global session store
-session_store = SessionStore()
+async def ensure_database_initialized():
+    """Ensure database is initialized (called once on startup)"""
+    global _db_initialized
+    if not _db_initialized:
+        await init_database()
+        _db_initialized = True
 
 # ============================================================================
 # JSON Serialization Utilities
@@ -119,18 +95,108 @@ def make_json_serializable(data):
         return data
 
 def dataframe_to_json_safe(df):
-    """Convert DataFrame to JSON-safe format"""
-    if df is None or df.empty:
+    """Convert DataFrame or data object to JSON-safe format"""
+    if df is None:
         return {"records": [], "columns": []}
     
-    records = df.to_dict(orient="records")
-    cleaned_records = [make_json_serializable(record) for record in records]
+    # Handle actual pandas DataFrame
+    if hasattr(df, 'empty') and hasattr(df, 'to_dict'):
+        if df.empty:
+            return {"records": [], "columns": []}
+        
+        records = df.to_dict(orient="records")
+        cleaned_records = [make_json_serializable(record) for record in records]
+        
+        return {
+            "records": cleaned_records,
+            "columns": list(map(str, df.columns.tolist())),
+            "shape": [int(df.shape[0]), int(df.shape[1])]
+        }
     
-    return {
-        "records": cleaned_records,
-        "columns": list(map(str, df.columns.tolist())),
-        "shape": [int(df.shape[0]), int(df.shape[1])]
-    }
+    # Handle dictionary format (from proxy objects)
+    elif isinstance(df, dict):
+        if "records" in df:
+            # Already in the right format
+            records = df["records"]
+            cleaned_records = [make_json_serializable(record) for record in records]
+            return {
+                "records": cleaned_records,
+                "columns": df.get("columns", []),
+                "shape": df.get("shape", [len(records), len(records[0]) if records else 0])
+            }
+        else:
+            # Convert dict to records format
+            if not df:
+                return {"records": [], "columns": []}
+            
+            # Check if this is the problematic nested dict format from agent proxy
+            # Format: {"col1": {"0": val1, "1": val2}, "col2": {"0": val1, "1": val2}}
+            values_sample = list(df.values())[0] if df else None
+            if isinstance(values_sample, dict) and all(isinstance(k, str) and k.isdigit() for k in values_sample.keys()):
+                # This is the nested index format - convert to proper records
+                columns = list(df.keys())
+                if not columns:
+                    return {"records": [], "columns": []}
+                
+                # Get the indices from the first column
+                indices = sorted(df[columns[0]].keys(), key=int)
+                records = []
+                
+                for idx in indices:
+                    record = {}
+                    for col in columns:
+                        if idx in df[col]:
+                            record[col] = df[col][idx]
+                        else:
+                            record[col] = None
+                    records.append(make_json_serializable(record))
+                
+                return {
+                    "records": records,
+                    "columns": columns,
+                    "shape": [len(records), len(columns)]
+                }
+            
+            # Handle normal list format: {"col1": [val1, val2], "col2": [val1, val2]}
+            elif isinstance(list(df.values())[0], list):
+                columns = list(df.keys())
+                num_records = len(df[columns[0]]) if columns else 0
+                records = []
+                for i in range(num_records):
+                    record = {col: df[col][i] for col in columns}
+                    records.append(make_json_serializable(record))
+                
+                return {
+                    "records": records,
+                    "columns": columns,
+                    "shape": [num_records, len(columns)]
+                }
+            else:
+                # Single record: {"col1": val1, "col2": val2}
+                record = make_json_serializable(df)
+                return {
+                    "records": [record],
+                    "columns": list(df.keys()),
+                    "shape": [1, len(df)]
+                }
+    
+    # Handle list format
+    elif isinstance(df, list):
+        if not df:
+            return {"records": [], "columns": []}
+        
+        cleaned_records = [make_json_serializable(record) for record in df]
+        columns = list(df[0].keys()) if df and isinstance(df[0], dict) else []
+        
+        return {
+            "records": cleaned_records,
+            "columns": columns,
+            "shape": [len(df), len(columns)]
+        }
+    
+    # Fallback for other types
+    else:
+        return {"records": [], "columns": [], "error": f"Unsupported data type: {type(df)}"}
 
 def _create_data_cleaning_agent():
     """Create DataCleaningAgent instance"""
@@ -216,6 +282,9 @@ class GenericResponse(Model):
 async def clean_data(ctx: Context, req: CleanDataRequest) -> SessionResponse:
     """Clean dataset provided as dictionary data and create session"""
     try:
+        # Ensure database is initialized
+        await ensure_database_initialized()
+        
         start_time = time.time()
         
         # Create agent instance
@@ -241,9 +310,10 @@ async def clean_data(ctx: Context, req: CleanDataRequest) -> SessionResponse:
         
         execution_time = time.time() - start_time
         
-        # Create session
-        session_id = session_store.create_session(
-            cleaning_agent,
+        # Create session using centralized service
+        session_id = await session_service.create_session(
+            agent_instance=cleaning_agent,
+            agent_type="cleaning",
             metadata={
                 "operation": "clean_data",
                 "user_instructions": req.user_instructions,
@@ -271,6 +341,9 @@ async def clean_data(ctx: Context, req: CleanDataRequest) -> SessionResponse:
 async def clean_csv(ctx: Context, req: CleanCsvRequest) -> SessionResponse:
     """Clean dataset provided as base64-encoded CSV file and create session"""
     try:
+        # Ensure database is initialized
+        await ensure_database_initialized()
+        
         start_time = time.time()
         
         # Decode CSV content
@@ -306,9 +379,10 @@ async def clean_csv(ctx: Context, req: CleanCsvRequest) -> SessionResponse:
         
         execution_time = time.time() - start_time
         
-        # Create session
-        session_id = session_store.create_session(
-            cleaning_agent,
+        # Create session using centralized service
+        session_id = await session_service.create_session(
+            agent_instance=cleaning_agent,
+            agent_type="cleaning",
             metadata={
                 "operation": "clean_csv",
                 "filename": req.filename,
@@ -337,6 +411,9 @@ async def clean_csv(ctx: Context, req: CleanCsvRequest) -> SessionResponse:
 async def clean_from_session(ctx: Context, req: CleanFromSessionRequest) -> SessionResponse:
     """Clean data from a previous data loader session"""
     try:
+        # Ensure database is initialized
+        await ensure_database_initialized()
+        
         start_time = time.time()
         
         # Fetch data from the data loader session
@@ -367,18 +444,42 @@ async def clean_from_session(ctx: Context, req: CleanFromSessionRequest) -> Sess
                     error=loader_result.get("error", "Unknown error from data loader")
                 )
                 
-            # Extract DataFrame data
+            # Extract DataFrame data from enhanced serialization format
             data_dict = loader_result.get("data", {})
-            if not data_dict or "records" not in data_dict:
+            
+            # Handle enhanced serialization format (new)
+            if "data" in data_dict and isinstance(data_dict["data"], list):
+                # Enhanced format: {"data": [...], "columns": [...], "shape": [...]}
+                df_data = data_dict["data"]
+                if not df_data:
+                    return SessionResponse(
+                        success=False,
+                        message="No data found in session",
+                        session_id="",
+                        error="Session contains no data rows"
+                    )
+                df = pd.DataFrame(df_data)
+                
+            # Handle legacy format (fallback)
+            elif "records" in data_dict:
+                # Legacy format: {"records": [...], "columns": [...]}
+                records = data_dict["records"]
+                if not records:
+                    return SessionResponse(
+                        success=False,
+                        message="No data found in session",
+                        session_id="",
+                        error="Session contains no data rows"
+                    )
+                df = pd.DataFrame(records)
+                
+            else:
                 return SessionResponse(
                     success=False,
                     message="No data found in session",
                     session_id="",
-                    error="Session contains no usable data"
+                    error="Session contains no usable data format"
                 )
-                
-            # Convert to DataFrame
-            df = pd.DataFrame(data_dict["records"])
             
         except requests.RequestException as e:
             return SessionResponse(
@@ -408,9 +509,10 @@ async def clean_from_session(ctx: Context, req: CleanFromSessionRequest) -> Sess
         
         execution_time = time.time() - start_time
         
-        # Create session
-        session_id = session_store.create_session(
-            cleaning_agent,
+        # Create session using centralized service
+        session_id = await session_service.create_session(
+            agent_instance=cleaning_agent,
+            agent_type="cleaning",
             metadata={
                 "operation": "clean_from_session",
                 "source_session_id": req.session_id,
@@ -447,7 +549,7 @@ class SessionRequest(Model):
 async def get_cleaned_data(ctx: Context, req: SessionRequest) -> DataResponse:
     """Get cleaned dataset from session"""
     try:
-        session = session_store.get_session(req.session_id)
+        session = await session_service.get_session(req.session_id)
         if not session:
             return DataResponse(
                 success=False,
@@ -467,14 +569,30 @@ async def get_cleaned_data(ctx: Context, req: SessionRequest) -> DataResponse:
         
         # Get original data for comparison
         original_df = cleaning_agent.get_data_raw()
-        original_shape = list(original_df.shape) if original_df is not None else None
+        original_shape = None
+        if original_df is not None:
+            if hasattr(original_df, 'shape'):
+                original_shape = list(original_df.shape)
+            elif isinstance(original_df, dict) and 'records' in original_df:
+                records = original_df['records']
+                if records:
+                    original_shape = [len(records), len(records[0]) if records else 0]
+        
+        # Handle processed shape
+        processed_shape = None
+        if hasattr(cleaned_df, 'shape'):
+            processed_shape = list(cleaned_df.shape)
+        elif isinstance(cleaned_df, dict) and 'records' in cleaned_df:
+            records = cleaned_df['records']
+            if records:
+                processed_shape = [len(records), len(records[0]) if records else 0]
         
         return DataResponse(
             success=True,
             message="Cleaned data retrieved successfully",
             data=dataframe_to_json_safe(cleaned_df),
             original_shape=original_shape,
-            processed_shape=list(cleaned_df.shape)
+            processed_shape=processed_shape
         )
         
     except Exception as e:
@@ -488,7 +606,7 @@ async def get_cleaned_data(ctx: Context, req: SessionRequest) -> DataResponse:
 async def get_original_data(ctx: Context, req: SessionRequest) -> DataResponse:
     """Get original dataset from session"""
     try:
-        session = session_store.get_session(req.session_id)
+        session = await session_service.get_session(req.session_id)
         if not session:
             return DataResponse(
                 success=False,
@@ -525,7 +643,7 @@ async def get_original_data(ctx: Context, req: SessionRequest) -> DataResponse:
 async def get_cleaning_function(ctx: Context, req: SessionRequest) -> CodeResponse:
     """Get generated Python cleaning function from session"""
     try:
-        session = session_store.get_session(req.session_id)
+        session = await session_service.get_session(req.session_id)
         if not session:
             return CodeResponse(
                 success=False,
@@ -561,7 +679,7 @@ async def get_cleaning_function(ctx: Context, req: SessionRequest) -> CodeRespon
 async def get_cleaning_steps(ctx: Context, req: SessionRequest) -> GenericResponse:
     """Get recommended cleaning steps from session"""
     try:
-        session = session_store.get_session(req.session_id)
+        session = await session_service.get_session(req.session_id)
         if not session:
             return GenericResponse(
                 success=False,
@@ -589,7 +707,7 @@ async def get_cleaning_steps(ctx: Context, req: SessionRequest) -> GenericRespon
 async def get_workflow_summary(ctx: Context, session_id: str) -> GenericResponse:
     """Get workflow summary from session"""
     try:
-        session = session_store.get_session(session_id)
+        session = await session_service.get_session(session_id)
         if not session:
             return GenericResponse(
                 success=False,
@@ -617,7 +735,7 @@ async def get_workflow_summary(ctx: Context, session_id: str) -> GenericResponse
 async def get_logs(ctx: Context, req: SessionRequest) -> GenericResponse:
     """Get execution logs from session"""
     try:
-        session = session_store.get_session(req.session_id)
+        session = await session_service.get_session(req.session_id)
         if not session:
             return GenericResponse(
                 success=False,
@@ -645,7 +763,7 @@ async def get_logs(ctx: Context, req: SessionRequest) -> GenericResponse:
 async def get_full_response(ctx: Context, session_id: str) -> GenericResponse:
     """Get complete agent response from session"""
     try:
-        session = session_store.get_session(session_id)
+        session = await session_service.get_session(session_id)
         if not session:
             return GenericResponse(
                 success=False,
@@ -687,7 +805,7 @@ async def health_check(ctx: Context) -> HealthResponse:
 @agent.on_rest_get("/debug/sessions", GenericResponse)
 async def debug_sessions(ctx: Context) -> GenericResponse:
     """Debug endpoint to list all sessions"""
-    sessions = session_store.list_sessions()
+    sessions = await session_service.list_sessions(agent_type="cleaning")
     return GenericResponse(
         success=True,
         message=f"Found {len(sessions)} sessions",
@@ -701,7 +819,7 @@ class DeleteSessionRequest(Model):
 async def delete_session(ctx: Context, req: DeleteSessionRequest) -> GenericResponse:
     """Delete a session"""
     try:
-        deleted = session_store.delete_session(req.session_id)
+        deleted = await session_service.delete_session(req.session_id)
         
         if not deleted:
             return GenericResponse(

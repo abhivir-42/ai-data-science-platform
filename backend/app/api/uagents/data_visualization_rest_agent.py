@@ -53,36 +53,23 @@ from uagents import Agent, Context, Model
 from uagents.setup import fund_agent_if_low
 from langchain_openai import ChatOpenAI
 from app.agents import DataVisualisationAgent
+from app.services.session_service import session_service
+from app.core.database import init_database
 
 # ============================================================================
-# Session Management (In-Memory Store)
+# Database Session Management (Replaced in-memory SessionStore)
 # ============================================================================
 
-class SessionStore:
-    def __init__(self):
-        self._sessions = {}
-        self._session_timeout_hours = 24
-    
-    def create_session(self, agent_instance, metadata=None):
-        session_id = str(uuid.uuid4())
-        self._sessions[session_id] = {
-            "agent": agent_instance,
-            "created_at": time.time(),
-            "metadata": metadata or {}
-        }
-        return session_id
-    
-    def get_session(self, session_id):
-        return self._sessions.get(session_id)
-    
-    def delete_session(self, session_id):
-        if session_id in self._sessions:
-            del self._sessions[session_id]
-            return True
-        return False
+# Initialize database on startup
+import asyncio
+_db_initialized = False
 
-# Global session store
-session_store = SessionStore()
+async def ensure_database_initialized():
+    """Ensure database is initialized (called once on startup)"""
+    global _db_initialized
+    if not _db_initialized:
+        await init_database()
+        _db_initialized = True
 
 # ============================================================================
 # JSON Serialization Utilities
@@ -211,6 +198,9 @@ class GenericResponse(Model):
 async def create_chart(ctx: Context, req: CreateChartRequest) -> SessionResponse:
     """Create visualization from dataset provided as dictionary data and create session"""
     try:
+        # Ensure database is initialized
+        await ensure_database_initialized()
+        
         start_time = time.time()
         
         # Create agent instance
@@ -237,8 +227,9 @@ async def create_chart(ctx: Context, req: CreateChartRequest) -> SessionResponse
         execution_time = time.time() - start_time
         
         # Create session
-        session_id = session_store.create_session(
-            viz_agent,
+        session_id = await session_service.create_session(
+            agent_instance=viz_agent,
+            agent_type="visualization",
             metadata={
                 "operation": "create_chart",
                 "user_instructions": req.user_instructions,
@@ -266,6 +257,9 @@ async def create_chart(ctx: Context, req: CreateChartRequest) -> SessionResponse
 async def create_chart_csv(ctx: Context, req: CreateChartCsvRequest) -> SessionResponse:
     """Create visualization from dataset provided as base64-encoded CSV file and create session"""
     try:
+        # Ensure database is initialized
+        await ensure_database_initialized()
+        
         start_time = time.time()
         
         # Decode CSV content
@@ -302,8 +296,9 @@ async def create_chart_csv(ctx: Context, req: CreateChartCsvRequest) -> SessionR
         execution_time = time.time() - start_time
         
         # Create session
-        session_id = session_store.create_session(
-            viz_agent,
+        session_id = await session_service.create_session(
+            agent_instance=viz_agent,
+            agent_type="visualization",
             metadata={
                 "operation": "create_chart_csv",
                 "filename": req.filename,
@@ -336,7 +331,7 @@ async def create_chart_csv(ctx: Context, req: CreateChartCsvRequest) -> SessionR
 async def get_plotly_graph(ctx: Context, session_id: str) -> ChartResponse:
     """Get generated Plotly chart from session"""
     try:
-        session = session_store.get_session(session_id)
+        session = await session_service.get_session(session_id)
         if not session:
             return ChartResponse(
                 success=False,
@@ -393,7 +388,7 @@ async def get_plotly_graph(ctx: Context, session_id: str) -> ChartResponse:
 async def get_visualization_function(ctx: Context, session_id: str) -> CodeResponse:
     """Get generated Python visualization function from session"""
     try:
-        session = session_store.get_session(session_id)
+        session = await session_service.get_session(session_id)
         if not session:
             return CodeResponse(
                 success=False,
@@ -429,7 +424,7 @@ async def get_visualization_function(ctx: Context, session_id: str) -> CodeRespo
 async def get_visualization_steps(ctx: Context, session_id: str) -> GenericResponse:
     """Get recommended visualization steps from session"""
     try:
-        session = session_store.get_session(session_id)
+        session = await session_service.get_session(session_id)
         if not session:
             return GenericResponse(
                 success=False,
@@ -457,7 +452,7 @@ async def get_visualization_steps(ctx: Context, session_id: str) -> GenericRespo
 async def get_original_data(ctx: Context, session_id: str) -> DataResponse:
     """Get original dataset from session"""
     try:
-        session = session_store.get_session(session_id)
+        session = await session_service.get_session(session_id)
         if not session:
             return DataResponse(
                 success=False,
@@ -494,7 +489,7 @@ async def get_original_data(ctx: Context, session_id: str) -> DataResponse:
 async def get_workflow_summary(ctx: Context, session_id: str) -> GenericResponse:
     """Get workflow summary from session"""
     try:
-        session = session_store.get_session(session_id)
+        session = await session_service.get_session(session_id)
         if not session:
             return GenericResponse(
                 success=False,
@@ -522,7 +517,7 @@ async def get_workflow_summary(ctx: Context, session_id: str) -> GenericResponse
 async def get_logs(ctx: Context, session_id: str) -> GenericResponse:
     """Get execution logs from session"""
     try:
-        session = session_store.get_session(session_id)
+        session = await session_service.get_session(session_id)
         if not session:
             return GenericResponse(
                 success=False,
@@ -550,7 +545,7 @@ async def get_logs(ctx: Context, session_id: str) -> GenericResponse:
 async def get_full_response(ctx: Context, session_id: str) -> GenericResponse:
     """Get complete agent response from session"""
     try:
-        session = session_store.get_session(session_id)
+        session = await session_service.get_session(session_id)
         if not session:
             return GenericResponse(
                 success=False,
@@ -701,7 +696,7 @@ async def get_plotly_graph_post(ctx: Context, req: SessionRequest) -> ChartRespo
     """Get Plotly graph from session (POST version)"""
     try:
         print(f"[DEBUG] Requesting chart for session: {req.session_id}")
-        session = session_store.get_session(req.session_id)
+        session = await session_service.get_session(req.session_id)
         if not session:
             print(f"[DEBUG] Session {req.session_id} not found in store")
             return ChartResponse(
@@ -738,7 +733,7 @@ async def get_plotly_graph_post(ctx: Context, req: SessionRequest) -> ChartRespo
 async def get_visualization_function_post(ctx: Context, req: SessionRequest) -> CodeResponse:
     """Get visualization function from session (POST version)"""
     try:
-        session = session_store.get_session(req.session_id)
+        session = await session_service.get_session(req.session_id)
         if not session:
             return CodeResponse(
                 success=False,
@@ -772,7 +767,7 @@ async def get_visualization_function_post(ctx: Context, req: SessionRequest) -> 
 async def get_visualization_steps_post(ctx: Context, req: SessionRequest) -> GenericResponse:
     """Get visualization recommendations from session (POST version)"""
     try:
-        session = session_store.get_session(req.session_id)
+        session = await session_service.get_session(req.session_id)
         if not session:
             return GenericResponse(
                 success=False,
@@ -806,7 +801,7 @@ async def get_visualization_steps_post(ctx: Context, req: SessionRequest) -> Gen
 async def delete_session(ctx: Context, req: DeleteSessionRequest) -> GenericResponse:
     """Delete a session"""
     try:
-        deleted = session_store.delete_session(req.session_id)
+        deleted = await session_service.delete_session(req.session_id)
         
         if not deleted:
             return GenericResponse(

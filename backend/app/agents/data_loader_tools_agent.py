@@ -253,9 +253,9 @@ class DataLoaderToolsAgent(BaseAgent):
             return "No response available. Run invoke_agent() first."
             
         if as_dataframe and self.response.get("data_loader_artifacts"):
-            if isinstance(self.response["data_loader_artifacts"], dict) and "data" in self.response["data_loader_artifacts"]:
+            if isinstance(self.response["data_loader_artifacts"], dict) and "records" in self.response["data_loader_artifacts"]:
                 # Fix the DataFrame conversion issue - use orient='dict' to preserve shape
-                data_dict = self.response["data_loader_artifacts"]["data"]
+                data_dict = self.response["data_loader_artifacts"]["records"]
                 try:
                     # Try to create DataFrame properly preserving original shape
                     df = pd.DataFrame.from_dict(data_dict, orient='columns')
@@ -323,7 +323,7 @@ def _is_valid_data_artifact(content_dict):
         return False
     
     # Check for standard data structure
-    if "data" in content_dict:
+    if "records" in content_dict:
         return True
     
     # Check for chunked data structure
@@ -406,7 +406,7 @@ def make_data_loader_tools_agent(
             
             # Create artifacts directly from the provided data
             artifacts = {
-                "data": df.to_dict('records'),
+                "records": df.to_dict('records'),
                 "columns": list(df.columns),
                 "shape": list(df.shape),
                 "dtypes": df.dtypes.to_dict(),

@@ -53,43 +53,23 @@ from uagents import Agent, Context, Model
 from uagents.setup import fund_agent_if_low
 from langchain_openai import ChatOpenAI
 from app.agents import FeatureEngineeringAgent
+from app.services.session_service import session_service
+from app.core.database import init_database
 
 # ============================================================================
-# Session Management (In-Memory Store)
+# Database Session Management (Replaced in-memory SessionStore)
 # ============================================================================
 
-class SessionStore:
-    def __init__(self):
-        self._sessions = {}
-        self._session_timeout_hours = 24
-        print(f"[SessionStore] Initialized session store")
-    
-    def create_session(self, agent_instance, metadata=None):
-        session_id = str(uuid.uuid4())
-        self._sessions[session_id] = {
-            "agent": agent_instance,
-            "created_at": time.time(),
-            "metadata": metadata or {}
-        }
-        print(f"[SessionStore] Created session {session_id}. Total sessions: {len(self._sessions)}")
-        return session_id
-    
-    def get_session(self, session_id):
-        session = self._sessions.get(session_id)
-        print(f"[SessionStore] Get session {session_id}: {'Found' if session else 'Not found'}. Total sessions: {len(self._sessions)}")
-        if not session:
-            print(f"[SessionStore] Available sessions: {list(self._sessions.keys())}")
-        return session
-    
-    def delete_session(self, session_id):
-        if session_id in self._sessions:
-            del self._sessions[session_id]
-            print(f"[SessionStore] Deleted session {session_id}. Total sessions: {len(self._sessions)}")
-            return True
-        return False
+# Initialize database on startup
+import asyncio
+_db_initialized = False
 
-# Global session store
-session_store = SessionStore()
+async def ensure_database_initialized():
+    """Ensure database is initialized (called once on startup)"""
+    global _db_initialized
+    if not _db_initialized:
+        await init_database()
+        _db_initialized = True
 
 # ============================================================================
 # JSON Serialization Utilities
@@ -211,6 +191,9 @@ class DeleteSessionRequest(Model):
 async def engineer_features(ctx: Context, req: EngineerFeaturesRequest) -> SessionResponse:
     """Engineer features for dataset provided as dictionary data and create session"""
     try:
+        # Ensure database is initialized
+        await ensure_database_initialized()
+        
         start_time = time.time()
         
         # Create agent instance
@@ -238,8 +221,9 @@ async def engineer_features(ctx: Context, req: EngineerFeaturesRequest) -> Sessi
         execution_time = time.time() - start_time
         
         # Create session
-        session_id = session_store.create_session(
-            fe_agent,
+        session_id = await session_service.create_session(
+            agent_instance=fe_agent,
+            agent_type="engineering",
             metadata={
                 "operation": "engineer_features",
                 "target_variable": req.target_variable,
@@ -268,6 +252,9 @@ async def engineer_features(ctx: Context, req: EngineerFeaturesRequest) -> Sessi
 async def engineer_features_csv(ctx: Context, req: EngineerFeaturesCsvRequest) -> SessionResponse:
     """Engineer features for dataset provided as base64-encoded CSV file and create session"""
     try:
+        # Ensure database is initialized
+        await ensure_database_initialized()
+        
         start_time = time.time()
         
         # Decode CSV content
@@ -306,8 +293,9 @@ async def engineer_features_csv(ctx: Context, req: EngineerFeaturesCsvRequest) -
         
         # Create session
         print(f"[DEBUG] Creating session for feature engineering...")
-        session_id = session_store.create_session(
-            fe_agent,
+        session_id = await session_service.create_session(
+            agent_instance=fe_agent,
+            agent_type="engineering",
             metadata={
                 "operation": "engineer_features_csv",
                 "filename": req.filename,
@@ -320,7 +308,7 @@ async def engineer_features_csv(ctx: Context, req: EngineerFeaturesCsvRequest) -
         print(f"[DEBUG] Session created: {session_id}")
         
         # Debug: Test immediate retrieval
-        test_session = session_store.get_session(session_id)
+        test_session = await session_service.get_session(session_id)
         print(f"[DEBUG] Immediate session test: {'Found' if test_session else 'Not found'}")
         if test_session:
             print(f"[DEBUG] Session agent type: {type(test_session['agent'])}")
@@ -350,7 +338,7 @@ async def engineer_features_csv(ctx: Context, req: EngineerFeaturesCsvRequest) -
 async def delete_session(ctx: Context, req: DeleteSessionRequest) -> GenericResponse:
     """Delete a session"""
     try:
-        deleted = session_store.delete_session(req.session_id)
+        deleted = await session_service.delete_session(req.session_id)
         
         if not deleted:
             return GenericResponse(
@@ -380,7 +368,7 @@ async def get_session_data_post(ctx: Context, req: SessionRequest) -> DataRespon
     """Get engineered dataset from session (POST version for frontend compatibility)"""
     try:
         print(f"[DEBUG] POST: Getting engineered data for session {req.session_id}")
-        session = session_store.get_session(req.session_id)
+        session = await session_service.get_session(req.session_id)
         if not session:
             return DataResponse(
                 success=False,
@@ -422,7 +410,7 @@ async def get_engineering_function_post(ctx: Context, req: SessionRequest) -> Co
     """Get engineering function from session (POST version)"""
     try:
         print(f"[DEBUG] POST: Getting engineering function for session {req.session_id}")
-        session = session_store.get_session(req.session_id)
+        session = await session_service.get_session(req.session_id)
         if not session:
             return CodeResponse(
                 success=False,
@@ -461,7 +449,7 @@ async def get_engineering_steps_post(ctx: Context, req: SessionRequest) -> Gener
     """Get engineering recommendations from session (POST version)"""
     try:
         print(f"[DEBUG] POST: Getting engineering steps for session {req.session_id}")
-        session = session_store.get_session(req.session_id)
+        session = await session_service.get_session(req.session_id)
         if not session:
             return GenericResponse(
                 success=False,
@@ -499,7 +487,7 @@ async def get_logs_post(ctx: Context, req: SessionRequest) -> GenericResponse:
     """Get execution logs from session (POST version)"""
     try:
         print(f"[DEBUG] POST: Getting logs for session {req.session_id}")
-        session = session_store.get_session(req.session_id)
+        session = await session_service.get_session(req.session_id)
         if not session:
             return GenericResponse(
                 success=False,
@@ -530,7 +518,7 @@ async def get_workflow_summary_post(ctx: Context, req: SessionRequest) -> Generi
     """Get workflow summary from session (POST version)"""
     try:
         print(f"[DEBUG] POST: Getting workflow summary for session {req.session_id}")
-        session = session_store.get_session(req.session_id)
+        session = await session_service.get_session(req.session_id)
         if not session:
             return GenericResponse(
                 success=False,
@@ -541,8 +529,7 @@ async def get_workflow_summary_post(ctx: Context, req: SessionRequest) -> Generi
         fe_agent = session["agent"]
         
         # Create a summary from the session metadata
-        session_data = session_store._sessions.get(req.session_id, {})
-        metadata = session_data.get("metadata", {})
+        metadata = session.get("metadata", {})
         
         summary = {
             "operation": metadata.get("operation", "feature_engineering"),
@@ -571,7 +558,7 @@ async def get_original_data_post(ctx: Context, req: SessionRequest) -> DataRespo
     """Get original dataset from session (POST version)"""
     try:
         print(f"[DEBUG] POST: Getting original data for session {req.session_id}")
-        session = session_store.get_session(req.session_id)
+        session = await session_service.get_session(req.session_id)
         if not session:
             return DataResponse(
                 success=False,
