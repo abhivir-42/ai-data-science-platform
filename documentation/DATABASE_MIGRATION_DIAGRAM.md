@@ -151,7 +151,7 @@
 
 ---
 
-## 🚨 **Current Issue: Serialization Challenge**
+## 🚨 **Current Issue: Serialization Challenge** [Has been Fixed now by fallback mechanism: create fallback data]
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
