@@ -24,6 +24,9 @@ from typing import Optional, Dict, Any, List
 from dotenv import load_dotenv
 import pandas as pd
 import numpy as np
+import logging
+
+logger = logging.getLogger(__name__)
 
 def _ensure_project_root_on_path():
     """Add project root and backend to sys.path for imports"""
@@ -420,7 +423,8 @@ async def train_model_from_session(ctx: Context, req: TrainModelFromSessionReque
                     if isinstance(artifacts, dict) and "records" in artifacts:
                         df = pd.DataFrame(artifacts["records"])
                     elif isinstance(artifacts, dict) and "data" in artifacts:
-                        # Handle legacy data format
+                        # Handle legacy data format (deprecated - use "records")
+                        logger.warning("Using deprecated 'data' format in data_loader_artifacts. Please use 'records' format.")
                         df = pd.DataFrame(artifacts["data"])
                 elif "data" in response:
                     df = pd.DataFrame(response["data"])
@@ -434,7 +438,8 @@ async def train_model_from_session(ctx: Context, req: TrainModelFromSessionReque
                     if isinstance(artifacts, dict) and "records" in artifacts:
                         df = pd.DataFrame(artifacts["records"])
                     elif isinstance(artifacts, dict) and "data" in artifacts:
-                        # Handle legacy data format
+                        # Handle legacy data format (deprecated - use "records")
+                        logger.warning("Using deprecated 'data' format in agent_results artifacts. Please use 'records' format.")
                         df = pd.DataFrame(artifacts["data"])
                 elif "response" in agent_results:
                     response = agent_results["response"]
@@ -443,7 +448,8 @@ async def train_model_from_session(ctx: Context, req: TrainModelFromSessionReque
                         if isinstance(artifacts, dict) and "records" in artifacts:
                             df = pd.DataFrame(artifacts["records"])
                         elif isinstance(artifacts, dict) and "data" in artifacts:
-                            # Handle legacy data format
+                            # Handle legacy data format (deprecated - use "records")
+                            logger.warning("Using deprecated 'data' format in agent_results response. Please use 'records' format.")
                             df = pd.DataFrame(artifacts["data"])
         
         if df is None:
