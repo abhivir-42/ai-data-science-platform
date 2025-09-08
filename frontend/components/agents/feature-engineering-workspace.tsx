@@ -53,7 +53,7 @@ export function FeatureEngineeringWorkspace() {
   })
   
   const router = useRouter()
-  const { addSession, sessions } = useSessionsStore()
+  const { addSession, getUserSessionsByAgent } = useSessionsStore()
   const { user } = useSimpleAuth()
   const { toast } = useToast()
 
@@ -159,10 +159,8 @@ export function FeatureEngineeringWorkspace() {
     })
   }
 
-  // Get recent sessions for this agent
-  const recentSessions = sessions
-    .filter(s => s.agentType === 'engineering')
-    .slice(0, 5)
+  // Get recent sessions for this agent (user-specific)
+  const recentSessions = getUserSessionsByAgent('engineering').slice(0, 5)
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-orange-50 via-amber-50 to-yellow-50">

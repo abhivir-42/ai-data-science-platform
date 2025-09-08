@@ -55,7 +55,7 @@ export function MLTrainingWorkspace() {
   })
   
   const router = useRouter()
-  const { addSession, sessions } = useSessionsStore()
+  const { addSession, getUserSessionsByAgent } = useSessionsStore()
   const { user } = useSimpleAuth()
   const { toast } = useToast()
 
@@ -161,10 +161,8 @@ export function MLTrainingWorkspace() {
     })
   }
 
-  // Get recent sessions for this agent
-  const recentSessions = sessions
-    .filter(s => s.agentType === 'training')
-    .slice(0, 5)
+  // Get recent sessions for this agent (user-specific)
+  const recentSessions = getUserSessionsByAgent('training').slice(0, 5)
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-blue-50 to-purple-50">

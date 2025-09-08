@@ -41,7 +41,7 @@ export function DataCleaningWorkspace() {
   })
   
   const router = useRouter()
-  const { addSession, sessions } = useSessionsStore()
+  const { addSession, getUserSessionsByAgent } = useSessionsStore()
   const { user } = useSimpleAuth()
   const { toast } = useToast()
 
@@ -133,9 +133,9 @@ export function DataCleaningWorkspace() {
 
   const isLoading = cleanDataMutation.isPending
 
-  // Get recent data loader sessions for quick reference
-  const dataLoaderSessions = sessions
-    .filter(s => s.agentType === 'loading' && s.status === 'completed')
+  // Get recent data loader sessions for quick reference (user-specific)
+  const dataLoaderSessions = getUserSessionsByAgent('loading')
+    .filter(s => s.status === 'completed')
     .slice(0, 5)
 
   return (

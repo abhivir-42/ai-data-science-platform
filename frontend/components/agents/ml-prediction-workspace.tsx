@@ -38,7 +38,7 @@ export function MLPredictionWorkspace() {
   const [analysisQuery, setAnalysisQuery] = useState('')
   
   const router = useRouter()
-  const { addSession, sessions } = useSessionsStore()
+  const { addSession, getUserSessionsByAgent } = useSessionsStore()
   const { user } = useSimpleAuth()
   const { toast } = useToast()
 
@@ -246,14 +246,10 @@ export function MLPredictionWorkspace() {
     })
   }
 
-  // Get recent sessions
-  const recentSessions = sessions
-    .filter(s => s.agentType === 'prediction')
-    .slice(0, 5)
+  // Get recent sessions (user-specific)
+  const recentSessions = getUserSessionsByAgent('prediction').slice(0, 5)
 
-  const trainingSessionsForModels = sessions
-    .filter(s => s.agentType === 'training')
-    .slice(0, 10)
+  const trainingSessionsForModels = getUserSessionsByAgent('training').slice(0, 10)
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-red-50 via-pink-50 to-rose-50">
