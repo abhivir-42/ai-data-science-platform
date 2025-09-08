@@ -129,15 +129,31 @@ export function WorkflowDashboard() {
 
   // Calculate agent usage stats
   useEffect(() => {
-    const stats = {} as Record<AgentType, number>
-    Object.keys(agentConfig).forEach(agentType => {
-      stats[agentType as AgentType] = getUserSessionsByAgent(agentType as AgentType).length
-    })
-    setAgentStats(stats)
+    try {
+      const stats = {} as Record<AgentType, number>
+      Object.keys(agentConfig).forEach(agentType => {
+        const sessions = getUserSessionsByAgent(agentType as AgentType) || []
+        stats[agentType as AgentType] = sessions.length
+      })
+      setAgentStats(stats)
+    } catch (error) {
+      console.error('Error calculating agent stats:', error)
+      setAgentStats({} as any)
+    }
   }, [getUserSessionsByAgent])
 
-  const userSessions = getUserSessions()
-  const recentSessions = userSessions.slice(0, 5)
+  // Safely get user sessions with error handling
+  let userSessions: any[] = []
+  let recentSessions: any[] = []
+
+  try {
+    userSessions = getUserSessions() || []
+    recentSessions = userSessions.slice(0, 5)
+  } catch (error) {
+    console.error('Error getting user sessions:', error)
+    userSessions = []
+    recentSessions = []
+  }
 
   // Don't render until hydrated to prevent hydration mismatch
   if (!isHydrated) {

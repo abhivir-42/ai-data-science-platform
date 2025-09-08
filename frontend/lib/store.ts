@@ -156,34 +156,59 @@ export const useAppStore = create<AppStore>()(
       },
 
       getUserSessions: () => {
-        const { sessions, currentUserId } = get()
-        if (!currentUserId) return []
-        return sessions.filter((session) => session.userId === currentUserId)
+        try {
+          const state = get()
+          if (!state || !state.sessions) return []
+          if (!state.currentUserId) return []
+          return state.sessions.filter((session) => session && session.userId === state.currentUserId)
+        } catch (error) {
+          console.error('Error in getUserSessions:', error)
+          return []
+        }
       },
 
       getUserSessionsByAgent: (agentType) => {
-        const { sessions, currentUserId } = get()
-        if (!currentUserId) return []
-        return sessions.filter((session) =>
-          session.agentType === agentType && session.userId === currentUserId
-        )
+        try {
+          const state = get()
+          if (!state || !state.sessions || !state.currentUserId) return []
+          return state.sessions.filter((session) =>
+            session && session.agentType === agentType && session.userId === state.currentUserId
+          )
+        } catch (error) {
+          console.error('Error in getUserSessionsByAgent:', error)
+          return []
+        }
       },
 
       clearUserSessions: () => {
-        const { sessions, currentUserId } = get()
-        if (!currentUserId) return
-        const filteredSessions = sessions.filter((session) => session.userId !== currentUserId)
-        set({ sessions: filteredSessions })
+        try {
+          const state = get()
+          if (!state || !state.currentUserId || !state.sessions) return
+          const filteredSessions = state.sessions.filter((session) =>
+            session && session.userId !== state.currentUserId
+          )
+          set({ sessions: filteredSessions })
+        } catch (error) {
+          console.error('Error in clearUserSessions:', error)
+        }
       },
 
       // Migration function for legacy sessions
       migrateLegacySessions: (userId: string) => {
-        set((state) => ({
-          sessions: state.sessions.map((session) => ({
-            ...session,
-            userId: session.userId || userId, // Assign userId to sessions without one
-          }))
-        }))
+        try {
+          set((state) => {
+            if (!state.sessions) return state
+            return {
+              ...state,
+              sessions: state.sessions.map((session) => ({
+                ...session,
+                userId: session.userId || userId, // Assign userId to sessions without one
+              }))
+            }
+          })
+        } catch (error) {
+          console.error('Error in migrateLegacySessions:', error)
+        }
       },
       
       // Workflow chain actions
@@ -363,6 +388,13 @@ export const useSessionsStore = () => useAppStore((state) => ({
   getSession: state.getSession,
   getSessionsByAgent: state.getSessionsByAgent,
   clearSessions: state.clearSessions,
+  // User-specific session functions
+  currentUserId: state.currentUserId,
+  setCurrentUser: state.setCurrentUser,
+  getUserSessions: state.getUserSessions,
+  getUserSessionsByAgent: state.getUserSessionsByAgent,
+  clearUserSessions: state.clearUserSessions,
+  migrateLegacySessions: state.migrateLegacySessions,
 }))
 
 export const useWorkflowStore = () => useAppStore((state) => ({
