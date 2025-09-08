@@ -830,10 +830,9 @@ export function WorkflowBuilder() {
                     {executionResults.steps?.some((step: any) => step.session_id) && (
                       <Button
                         onClick={() => {
-                          // Navigate to results view
-                          const firstSessionId = executionResults.steps.find((step: any) => step.session_id)?.session_id
-                          if (firstSessionId) {
-                            window.location.href = `/sessions/${firstSessionId}`
+                          // Navigate to the comprehensive workflow results page
+                          if (executionResults.workflow_id) {
+                            window.location.href = `/workflows/${executionResults.workflow_id}/results`
                           }
                         }}
                         className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700"

@@ -123,7 +123,7 @@ class UAgentClient:
             'session_id': session_id,
             'user_instructions': user_instructions or 'Create comprehensive visualizations to understand the data'
         }
-        return await self._request('visualization', '/create-chart', data)
+        return await self._request('visualization', '/create-chart-from-session', data)
     
     async def create_chart_csv(self, filename: str, file_content: str, user_instructions: str = None) -> Dict[str, Any]:
         """Create chart from CSV data directly"""

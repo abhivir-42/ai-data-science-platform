@@ -571,6 +571,10 @@ class SessionService:
     
     def _make_json_safe(self, data: Any) -> Any:
         """Convert data to JSON-safe format, handling pandas/numpy types."""
+        import pandas as pd
+        import numpy as np
+        from datetime import datetime, date
+
         if data is None:
             return None
         elif isinstance(data, (str, int, float, bool)):
@@ -579,24 +583,149 @@ class SessionService:
             return {k: self._make_json_safe(v) for k, v in data.items()}
         elif isinstance(data, (list, tuple)):
             return [self._make_json_safe(item) for item in data]
-        elif hasattr(data, 'isoformat'):  # datetime objects
+        elif isinstance(data, (datetime, date)):
             return data.isoformat()
-        elif hasattr(data, 'to_dict'):  # pandas DataFrame, etc.
+        elif isinstance(data, pd.Timestamp):
+            return data.isoformat()
+        elif isinstance(data, np.datetime64):
+            return pd.Timestamp(data).isoformat()
+        elif isinstance(data, pd.Period):
+            return str(data)
+        elif isinstance(data, pd.Timedelta):
+            return str(data)
+        elif hasattr(data, 'dtype') and hasattr(data.dtype, 'type'):
+            # Check for pandas datetime dtypes
+            if np.issubdtype(data.dtype, np.datetime64):
+                try:
+                    return pd.Timestamp(data).isoformat()
+                except:
+                    return str(data)
+            elif np.issubdtype(data.dtype, np.integer):
+                return int(data)
+            elif np.issubdtype(data.dtype, np.floating):
+                return float(data)
+            elif np.issubdtype(data.dtype, np.bool_):
+                return bool(data)
+        elif isinstance(data, pd.Series):
+            try:
+                # Convert to list and make JSON-safe
+                series_list = data.tolist()
+                return [self._make_json_safe(item) for item in series_list]
+            except:
+                return list(data)
+        elif isinstance(data, pd.Index):
+            try:
+                # Convert to list and make JSON-safe
+                index_list = data.tolist()
+                return [self._make_json_safe(item) for item in index_list]
+            except:
+                return list(data)
+        elif isinstance(data, pd.DataFrame):
+            try:
+                # Convert DataFrame to records format and make JSON-safe
+                df_dict = data.to_dict(orient='records')
+                # Recursively apply _make_json_safe to each record
+                return [self._make_json_safe(record) for record in df_dict]
+            except Exception as e:
+                print(f"DataFrame serialization failed: {e}")
+                return str(data)
+        elif hasattr(data, 'isoformat'):  # Other datetime-like objects
+            return data.isoformat()
+        elif hasattr(data, 'to_dict'):  # Other pandas objects
             try:
                 return self._make_json_safe(data.to_dict())
-            except:
+            except Exception as e:
+                print(f"Pandas object serialization failed: {e}")
                 return str(data)
-        elif hasattr(data, 'item'):  # numpy scalars
+        elif isinstance(data, np.integer):
+            return int(data)
+        elif isinstance(data, np.floating):
+            return float(data)
+        elif isinstance(data, np.bool_):
+            return bool(data)
+        elif isinstance(data, (np.ndarray, np.matrix)):
+            try:
+                array_list = data.tolist()
+                # Recursively apply _make_json_safe to each element
+                return [self._make_json_safe(item) for item in array_list]
+            except:
+                try:
+                    flat_list = data.flatten().tolist()
+                    return [self._make_json_safe(item) for item in flat_list]
+                except:
+                    return str(data)
+        elif hasattr(data, 'item'):  # Other numpy scalars
             try:
                 return data.item()
             except:
                 return str(data)
-        elif hasattr(data, 'tolist'):  # numpy arrays
+        elif hasattr(data, 'tolist'):  # Other array-like objects
             try:
                 return data.tolist()
             except:
                 return str(data)
+        elif hasattr(data, 'content') and hasattr(data, 'type'):
+            # Handle LangChain message objects
+            try:
+                return {
+                    'type': getattr(data, 'type', 'unknown'),
+                    'content': str(getattr(data, 'content', '')),
+                    'name': getattr(data, 'name', None),
+                    'tool_calls': getattr(data, 'tool_calls', None),
+                    'usage_metadata': getattr(data, 'usage_metadata', None),
+                }
+            except:
+                return str(data)
+        elif hasattr(data, 'asm8') and hasattr(data, 'dtype'):
+            # Handle numpy datetime64 scalars that might slip through
+            try:
+                return pd.Timestamp(data).isoformat()
+            except:
+                return str(data)
+        elif hasattr(data, 'values') and hasattr(data, 'index'):
+            # Handle pandas-like objects that might have datetime data
+            try:
+                if hasattr(data, 'to_dict'):
+                    return self._make_json_safe(data.to_dict())
+                else:
+                    return str(data)
+            except:
+                return str(data)
         else:
+            # Try to identify what type this is for debugging
+            data_type = type(data).__name__
+            module = type(data).__module__
+
+            # Check if this is a pandas Timestamp that slipped through
+            if hasattr(data, 'to_pydatetime'):
+                try:
+                    return data.to_pydatetime().isoformat()
+                except:
+                    pass
+
+            # Check if this is a pandas object with datetime conversion
+            if hasattr(data, 'to_datetime'):
+                try:
+                    return str(data.to_datetime())
+                except:
+                    pass
+
+            # Check for pandas datetime objects with different attributes
+            if hasattr(data, '_is_naive') or hasattr(data, 'tz_localize'):
+                try:
+                    # This is likely a pandas datetime-like object
+                    return pd.Timestamp(data).isoformat()
+                except:
+                    pass
+
+            # Check for pandas Period or Interval objects
+            if hasattr(data, 'start') and hasattr(data, 'end'):
+                try:
+                    return f"{data.start} to {data.end}"
+                except:
+                    pass
+
+            print(f"DEBUG: Unknown data type: {module}.{data_type} = {str(data)[:200]}...")
             # Convert to string as fallback
             return str(data)
     
@@ -675,6 +804,62 @@ class SessionService:
             
             def get_response(self):
                 return self._results.get("response")
+            
+            # Feature Engineering agent methods
+            def get_data_engineered(self):
+                """Get engineered data from feature engineering agent."""
+                # Check in response_data first (where Feature Engineering agent stores it)
+                response_data = self._results.get("response_data", {})
+                engineered_data = response_data.get("data_engineered")
+                
+                # Fallback to direct key for backward compatibility
+                if not engineered_data:
+                    engineered_data = self._results.get("data_engineered")
+                
+                if engineered_data:
+                    try:
+                        import pandas as pd
+                        # Handle different data formats
+                        if isinstance(engineered_data, dict):
+                            # If it's a dict with column names as keys
+                            return pd.DataFrame(engineered_data)
+                        elif isinstance(engineered_data, list):
+                            # If it's a list of records
+                            return pd.DataFrame(engineered_data)
+                        else:
+                            print(f"[DEBUG] Unexpected engineered data type: {type(engineered_data)}")
+                            return None
+                    except Exception as e:
+                        print(f"[DEBUG] Failed to convert engineered data to DataFrame: {e}")
+                        print(f"[DEBUG] Data type: {type(engineered_data)}")
+                        if isinstance(engineered_data, (dict, list)) and len(str(engineered_data)) < 500:
+                            print(f"[DEBUG] Data preview: {engineered_data}")
+                        return None
+                return None
+            
+            def get_feature_engineer_function(self):
+                """Get the feature engineering function code."""
+                # Check in response_data first
+                response_data = self._results.get("response_data", {})
+                function_code = response_data.get("feature_engineer_function")
+                
+                # Fallback to direct key for backward compatibility
+                if not function_code:
+                    function_code = self._results.get("feature_engineer_function")
+                
+                return function_code
+            
+            def get_recommended_feature_engineering_steps(self):
+                """Get recommended feature engineering steps."""
+                # Check in response_data first
+                response_data = self._results.get("response_data", {})
+                steps = response_data.get("recommended_steps")
+                
+                # Fallback to direct key for backward compatibility
+                if not steps:
+                    steps = self._results.get("recommended_feature_engineering_steps")
+                
+                return steps
             
             # Data loader agent methods
             def get_artifacts(self, as_dataframe=True):
@@ -842,7 +1027,9 @@ class SessionService:
 
             # Try to get column names
             if hasattr(data, 'columns'):
-                analysis["column_names"] = list(data.columns[:5])  # First 5 columns
+                column_names = list(data.columns[:5])  # First 5 columns
+                # Make column names JSON-safe
+                analysis["column_names"] = [self._make_json_safe(name) for name in column_names]
                 if len(data.columns) > 5:
                     analysis["column_names"].append(f"... and {len(data.columns) - 5} more")
 
@@ -851,7 +1038,9 @@ class SessionService:
                 try:
                     preview = data.head(3).to_dict('records') if hasattr(data, 'to_dict') else None
                     if preview:
-                        analysis["data_preview"] = preview
+                        # Make the preview JSON-safe to prevent serialization issues
+                        safe_preview = [self._make_json_safe(record) for record in preview]
+                        analysis["data_preview"] = safe_preview
                 except:
                     pass
 

@@ -155,6 +155,11 @@ class CreateChartCsvRequest(Model):
     user_instructions: Optional[str] = None
     max_retries: int = 3
 
+class CreateChartFromSessionRequest(Model):
+    session_id: str
+    user_instructions: Optional[str] = None
+    max_retries: int = 3
+
 class SessionResponse(Model):
     success: bool
     message: str
@@ -319,6 +324,120 @@ async def create_chart_csv(ctx: Context, req: CreateChartCsvRequest) -> SessionR
         return SessionResponse(
             success=False,
             message="CSV chart creation failed",
+            session_id="",
+            error=str(e)
+        )
+
+@agent.on_rest_post("/create-chart-from-session", CreateChartFromSessionRequest, SessionResponse)
+async def create_chart_from_session(ctx: Context, req: CreateChartFromSessionRequest) -> SessionResponse:
+    """Create visualization from data in existing session"""
+    try:
+        # Ensure database is initialized
+        await ensure_database_initialized()
+
+        start_time = time.time()
+
+        # Get data from the specified session
+        session_data = await session_service.get_session(req.session_id)
+        if not session_data:
+            return SessionResponse(
+                success=False,
+                message="Session not found or invalid",
+                session_id="",
+                error=f"Could not retrieve data from session {req.session_id}"
+            )
+
+        # Extract data from the agent in the session
+        agent = session_data.get('agent')
+        if not agent or not hasattr(agent, 'response') or not agent.response:
+            return SessionResponse(
+                success=False,
+                message="Session agent has no response data",
+                session_id="",
+                error=f"Session {req.session_id} agent has no valid response data"
+            )
+
+        # Try to get data from the agent response
+        df = None
+
+        # First try data_cleaned (processed data from cleaning agent)
+        if 'data_cleaned' in agent.response and agent.response['data_cleaned'] is not None:
+            df = agent.response['data_cleaned']
+            print(f"Using data_cleaned from session {req.session_id}")
+        # Then try data_raw (original data from loading agent)
+        elif 'data_raw' in agent.response and agent.response['data_raw'] is not None:
+            df = agent.response['data_raw']
+            print(f"Using data_raw from session {req.session_id}")
+        # Finally try get_artifacts method
+        elif hasattr(agent, 'get_artifacts'):
+            try:
+                artifacts = agent.get_artifacts()
+                if artifacts and 'records' in artifacts:
+                    df = pd.DataFrame(artifacts['records'])
+                    print(f"Using artifacts records from session {req.session_id}")
+                elif artifacts and 'data' in artifacts:
+                    df = pd.DataFrame.from_dict(artifacts['data'])
+                    print(f"Using artifacts data from session {req.session_id}")
+            except Exception as e:
+                print(f"Failed to get artifacts: {e}")
+
+        # Validate that we got a DataFrame
+        if df is None or (hasattr(df, 'empty') and df.empty):
+            return SessionResponse(
+                success=False,
+                message="Session contains no usable data",
+                session_id="",
+                error=f"Session {req.session_id} contains no valid DataFrame data"
+            )
+
+        # Ensure it's a pandas DataFrame
+        if not isinstance(df, pd.DataFrame):
+            try:
+                df = pd.DataFrame(df)
+            except Exception as e:
+                return SessionResponse(
+                    success=False,
+                    message="Could not convert session data to DataFrame",
+                    session_id="",
+                    error=f"Failed to convert session data to DataFrame: {str(e)}"
+                )
+
+        # Create agent instance
+        viz_agent = _create_data_visualization_agent()
+
+        # Execute data visualization
+        viz_agent.invoke_agent(
+            data_raw=df,
+            user_instructions=req.user_instructions,
+            max_retries=req.max_retries
+        )
+
+        execution_time = time.time() - start_time
+
+        # Create session
+        session_id = await session_service.create_session(
+            agent_instance=viz_agent,
+            agent_type="visualization",
+            metadata={
+                "operation": "create_chart_from_session",
+                "source_session_id": req.session_id,
+                "user_instructions": req.user_instructions,
+                "original_shape": list(df.shape),
+                "execution_time": execution_time
+            }
+        )
+
+        return SessionResponse(
+            success=True,
+            message="Chart creation from session completed successfully",
+            session_id=session_id,
+            execution_time_seconds=execution_time
+        )
+
+    except Exception as e:
+        return SessionResponse(
+            success=False,
+            message="Chart creation from session failed",
             session_id="",
             error=str(e)
         )
@@ -832,6 +951,7 @@ if __name__ == "__main__":
     print("   GET  http://127.0.0.1:8006/health")
     print("   POST http://127.0.0.1:8006/create-chart")
     print("   POST http://127.0.0.1:8006/create-chart-csv")
+    print("   POST http://127.0.0.1:8006/create-chart-from-session")
     print("   GET  http://127.0.0.1:8006/session/{id}/plotly-graph")
     print("   GET  http://127.0.0.1:8006/session/{id}/visualization-function")
     print("   GET  http://127.0.0.1:8006/session/{id}/visualization-steps")

@@ -239,6 +239,9 @@ class SessionResponse(Model):
     execution_time_seconds: Optional[float] = None
     error: Optional[str] = None
 
+class SessionRequest(Model):
+    session_id: str
+
 class DataResponse(Model):
     success: bool
     message: str
@@ -628,35 +631,6 @@ async def train_model_csv(ctx: Context, req: TrainModelCsvRequest) -> SessionRes
 # Session-Based Result Access Endpoints
 # ============================================================================
 
-@agent.on_rest_get("/session/{session_id}/leaderboard", LeaderboardResponse)
-async def get_leaderboard(ctx: Context, session_id: str) -> LeaderboardResponse:
-    """Get H2O AutoML leaderboard from session"""
-    try:
-        session_result = await session_service.get_session(session_id)
-        if not session_result:
-            return LeaderboardResponse(
-                success=False,
-                message="Session not found",
-                error=f"Session {session_id} not found or expired"
-            )
-        
-        ml_agent = session_result.get("agent")
-        if not ml_agent:
-            return LeaderboardResponse(
-                success=False,
-                message="No agent found in session",
-                error="Session does not contain an agent instance"
-            )
-        leaderboard = ml_agent.get_leaderboard()
-        
-        if leaderboard is None:
-            return LeaderboardResponse(
-                success=False,
-                message="No leaderboard available",
-                error="Model training may have failed or not completed"
-            )
-        
-        # Get best model ID
         best_model_id = ml_agent.get_best_model_id()
         
         # Make leaderboard JSON serializable
@@ -676,219 +650,22 @@ async def get_leaderboard(ctx: Context, session_id: str) -> LeaderboardResponse:
             error=str(e)
         )
 
-@agent.on_rest_get("/session/{session_id}/best-model-id", ModelInfoResponse)
-async def get_best_model_id(ctx: Context, session_id: str) -> ModelInfoResponse:
-    """Get best model ID from session"""
-    try:
-        session_result = await session_service.get_session(session_id)
-        if not session_result:
-            return ModelInfoResponse(
-                success=False,
-                message="Session not found",
-                error=f"Session {session_id} not found or expired"
-            )
-        
-        ml_agent = session_result.get("agent")
-        if not ml_agent:
-            return ModelInfoResponse(
-                success=False,
-                message="No agent found in session",
-                error="Session does not contain an agent instance"
-            )
-        best_model_id = ml_agent.get_best_model_id()
-        
-        if not best_model_id:
-            return ModelInfoResponse(
-                success=False,
-                message="No best model available",
-                error="Model training may have failed or not completed"
-            )
-        
-        return ModelInfoResponse(
-            success=True,
-            message="Best model ID retrieved successfully",
-            model_id=best_model_id
-        )
-        
-    except Exception as e:
-        return ModelInfoResponse(
-            success=False,
-            message="Failed to retrieve best model ID",
-            error=str(e)
-        )
 
-@agent.on_rest_get("/session/{session_id}/model-path", ModelInfoResponse)
-async def get_session_model_path(ctx: Context, session_id: str) -> ModelInfoResponse:
-    """Get saved model file path from session"""
-    try:
-        session_result = await session_service.get_session(session_id)
-        if not session_result:
-            return ModelInfoResponse(
-                success=False,
-                message="Session not found",
-                error=f"Session {session_id} not found or expired"
-            )
-        
-        ml_agent = session_result.get("agent")
-        if not ml_agent:
-            return ModelInfoResponse(
-                success=False,
-                message="No agent found in session",
-                error="Session does not contain an agent instance"
-            )
-        model_path = ml_agent.get_model_path()
-        
-        if not model_path:
-            return ModelInfoResponse(
-                success=False,
-                message="No model path available",
-                error="Model may not have been saved or training failed"
-            )
-        
-        return ModelInfoResponse(
-            success=True,
-            message="Model path retrieved successfully",
-            model_path=model_path
-        )
-        
-    except Exception as e:
-        return ModelInfoResponse(
-            success=False,
-            message="Failed to retrieve model path",
-            error=str(e)
-        )
 
-@agent.on_rest_get("/session/{session_id}/training-function", CodeResponse)
-async def get_training_function(ctx: Context, session_id: str) -> CodeResponse:
-    """Get generated H2O training function from session"""
-    try:
-        session_result = await session_service.get_session(session_id)
-        if not session_result:
-            return CodeResponse(
-                success=False,
-                message="Session not found",
-                error=f"Session {session_id} not found or expired"
-            )
-        
-        ml_agent = session_result.get("agent")
-        if not ml_agent:
-            return CodeResponse(
-                success=False,
-                message="No agent found in session",
-                error="Session does not contain an agent instance"
-            )
-        training_function = ml_agent.get_h2o_train_function()
-        
-        if not training_function:
-            return CodeResponse(
-                success=False,
-                message="No training function available",
-                error="H2O training function was not generated or is empty"
-            )
-        
-        return CodeResponse(
-            success=True,
-            message="Training function retrieved successfully",
-            generated_code=training_function,
-            code_explanation="This H2O AutoML function was automatically generated to train models on your dataset based on the provided target variable and training parameters."
-        )
-        
-    except Exception as e:
-        return CodeResponse(
-            success=False,
-            message="Failed to retrieve training function",
-            error=str(e)
-        )
 
-@agent.on_rest_get("/session/{session_id}/ml-steps", GenericResponse)
-async def get_ml_steps(ctx: Context, session_id: str) -> GenericResponse:
-    """Get recommended ML steps from session"""
-    try:
-        session_result = await session_service.get_session(session_id)
-        if not session_result:
-            return GenericResponse(
-                success=False,
-                message="Session not found",
-                error=f"Session {session_id} not found or expired"
-            )
-        
-        ml_agent = session_result.get("agent")
-        if not ml_agent:
-            return GenericResponse(
-                success=False,
-                message="No agent found in session",
-                error="Session does not contain an agent instance"
-            )
-        ml_steps = ml_agent.get_recommended_ml_steps()
-        
-        return GenericResponse(
-            success=True,
-            message="ML steps retrieved successfully",
-            data=ml_steps
-        )
-        
-    except Exception as e:
-        return GenericResponse(
-            success=False,
-            message="Failed to retrieve ML steps",
-            error=str(e)
-        )
 
-@agent.on_rest_get("/session/{session_id}/original-data", DataResponse)
-async def get_original_data(ctx: Context, session_id: str) -> DataResponse:
-    """Get original training dataset from session"""
+@agent.on_rest_post("/get-training-full-response", SessionRequest, GenericResponse)
+async def get_training_full_response(ctx: Context, req: SessionRequest) -> GenericResponse:
+    """Get complete training agent response from session"""
     try:
-        session_result = await session_service.get_session(session_id)
+        session_result = await session_service.get_session(req.session_id)
         if not session_result:
-            return DataResponse(
+            return GenericResponse(
                 success=False,
                 message="Session not found",
-                error=f"Session {session_id} not found or expired"
+                error=f"Session {req.session_id} not found or expired"
             )
-        
-        ml_agent = session_result.get("agent")
-        if not ml_agent:
-            return DataResponse(
-                success=False,
-                message="No agent found in session",
-                error="Session does not contain an agent instance"
-            )
-        original_df = ml_agent.get_data_raw()
-        
-        if original_df is None:
-            return DataResponse(
-                success=False,
-                message="No original data available",
-                error="Original training data not found in session"
-            )
-        
-        return DataResponse(
-            success=True,
-            message="Original training data retrieved successfully",
-            data=dataframe_to_json_safe(original_df),
-            original_shape=list(original_df.shape),
-            processed_shape=list(original_df.shape)
-        )
-        
-    except Exception as e:
-        return DataResponse(
-            success=False,
-            message="Failed to retrieve original data",
-            error=str(e)
-        )
 
-@agent.on_rest_get("/session/{session_id}/workflow-summary", GenericResponse)
-async def get_workflow_summary(ctx: Context, session_id: str) -> GenericResponse:
-    """Get training workflow summary from session"""
-    try:
-        session_result = await session_service.get_session(session_id)
-        if not session_result:
-            return GenericResponse(
-                success=False,
-                message="Session not found",
-                error=f"Session {session_id} not found or expired"
-            )
-        
         ml_agent = session_result.get("agent")
         if not ml_agent:
             return GenericResponse(
@@ -896,89 +673,22 @@ async def get_workflow_summary(ctx: Context, session_id: str) -> GenericResponse
                 message="No agent found in session",
                 error="Session does not contain an agent instance"
             )
-        workflow_summary = ml_agent.get_workflow_summary()
-        
-        return GenericResponse(
-            success=True,
-            message="Workflow summary retrieved successfully",
-            data=workflow_summary
-        )
-        
-    except Exception as e:
-        return GenericResponse(
-            success=False,
-            message="Failed to retrieve workflow summary",
-            error=str(e)
-        )
 
-@agent.on_rest_get("/session/{session_id}/logs", GenericResponse)
-async def get_logs(ctx: Context, session_id: str) -> GenericResponse:
-    """Get training execution logs from session"""
-    try:
-        session_result = await session_service.get_session(session_id)
-        if not session_result:
-            return GenericResponse(
-                success=False,
-                message="Session not found",
-                error=f"Session {session_id} not found or expired"
-            )
-        
-        ml_agent = session_result.get("agent")
-        if not ml_agent:
-            return GenericResponse(
-                success=False,
-                message="No agent found in session",
-                error="Session does not contain an agent instance"
-            )
-        log_summary = ml_agent.get_log_summary()
-        
-        return GenericResponse(
-            success=True,
-            message="Training logs retrieved successfully",
-            data=log_summary
-        )
-        
-    except Exception as e:
-        return GenericResponse(
-            success=False,
-            message="Failed to retrieve logs",
-            error=str(e)
-        )
-
-@agent.on_rest_get("/session/{session_id}/full-response", GenericResponse)
-async def get_full_response(ctx: Context, session_id: str) -> GenericResponse:
-    """Get complete agent response from session"""
-    try:
-        session_result = await session_service.get_session(session_id)
-        if not session_result:
-            return GenericResponse(
-                success=False,
-                message="Session not found",
-                error=f"Session {session_id} not found or expired"
-            )
-        
-        ml_agent = session_result.get("agent")
-        if not ml_agent:
-            return GenericResponse(
-                success=False,
-                message="No agent found in session",
-                error="Session does not contain an agent instance"
-            )
         response = ml_agent.get_response()
-        
+
         # Make response JSON serializable
         serializable_response = make_json_serializable(response)
-        
+
         return GenericResponse(
             success=True,
-            message="Full response retrieved successfully",
+            message="Training full response retrieved successfully",
             data=serializable_response
         )
-        
+
     except Exception as e:
         return GenericResponse(
             success=False,
-            message="Failed to retrieve full response",
+            message="Failed to retrieve training full response",
             error=str(e)
         )
 
@@ -993,9 +703,6 @@ async def health_check(ctx: Context) -> HealthResponse:
         status="healthy",
         agent="h2o_ml_rest_uagent"
     )
-
-class SessionRequest(Model):
-    session_id: str
 
 class DeleteSessionRequest(Model):
     session_id: str
@@ -1358,15 +1065,15 @@ if __name__ == "__main__":
     print("   GET  http://127.0.0.1:8008/health")
     print("   POST http://127.0.0.1:8008/train-model")
     print("   POST http://127.0.0.1:8008/train-model-csv")
-    print("   GET  http://127.0.0.1:8008/session/{id}/leaderboard")
-    print("   GET  http://127.0.0.1:8008/session/{id}/best-model-id")
-    print("   GET  http://127.0.0.1:8008/session/{id}/model-path")
-    print("   GET  http://127.0.0.1:8008/session/{id}/training-function")
-    print("   GET  http://127.0.0.1:8008/session/{id}/ml-steps")
-    print("   GET  http://127.0.0.1:8008/session/{id}/original-data")
-    print("   GET  http://127.0.0.1:8008/session/{id}/workflow-summary")
-    print("   GET  http://127.0.0.1:8008/session/{id}/logs")
-    print("   GET  http://127.0.0.1:8008/session/{id}/full-response")
-    print("   POST http://127.0.0.1:8008/session/{id}/delete")
+    print("   POST http://127.0.0.1:8008/get-leaderboard")
+    print("   POST http://127.0.0.1:8008/get-best-model-id")
+    print("   POST http://127.0.0.1:8008/get-model-path")
+    print("   POST http://127.0.0.1:8008/get-training-function")
+    print("   POST http://127.0.0.1:8008/get-ml-steps")
+    print("   POST http://127.0.0.1:8008/get-original-data")
+    print("   POST http://127.0.0.1:8008/get-workflow-summary")
+    print("   POST http://127.0.0.1:8008/get-logs")
+    print("   POST http://127.0.0.1:8008/get-training-full-response")
+    print("   POST http://127.0.0.1:8008/delete-session")
     print("🚀 Agent starting...")
     agent.run()

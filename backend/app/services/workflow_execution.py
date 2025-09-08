@@ -361,11 +361,44 @@ class WorkflowExecutionService:
         if not response.get('success'):
             raise Exception(f"Data visualization failed: {response.get('error', 'Unknown error')}")
         
+        # Get the chart data and code from the session
+        session_id = response['session_id']
+        
+        # Try to get chart data
+        try:
+            chart_response = await self.uagent_client._request('visualization', f'/session/{session_id}/chart', {})
+            chart_data = chart_response if chart_response.get('figure') else None
+        except Exception as e:
+            logger.warning(f"Could not retrieve chart data: {e}")
+            chart_data = None
+        
+        # Try to get visualization code
+        try:
+            code_response = await self.uagent_client._request('visualization', f'/session/{session_id}/code', {})
+            viz_code = code_response if code_response.get('generated_code') else None
+        except Exception as e:
+            logger.warning(f"Could not retrieve visualization code: {e}")
+            viz_code = None
+        
         return {
-            'session_id': response['session_id'],
+            'session_id': session_id,
             'agent_type': 'visualization',
             'execution_time_seconds': response.get('execution_time_seconds'),
-            'message': response.get('message')
+            'message': response.get('message'),
+            'chart': {
+                'success': True,
+                'message': 'Chart retrieved successfully',
+                'plotly_chart': chart_data.get('figure') if chart_data else None,
+                'chart_type': chart_data.get('chart_type') if chart_data else None,
+                'error': None
+            },
+            'viz_code': {
+                'success': bool(viz_code),
+                'message': 'Code retrieved successfully' if viz_code else 'Code not available',
+                'generated_code': viz_code.get('generated_code') if viz_code else None,
+                'code_explanation': viz_code.get('code_explanation') if viz_code else None,
+                'error': None
+            }
         }
     
     async def _execute_engineering_agent(self, parameters: Dict[str, Any]) -> Dict[str, Any]:
@@ -607,7 +640,7 @@ class WorkflowExecutionService:
         return {
             'id': execution.id,
             'name': execution.name,
-            'status': execution.status.value,
+            'status': execution.status.value if hasattr(execution.status, 'value') else str(execution.status),
             'current_step': execution.current_step_index,
             'total_steps': len(execution.steps),
             'progress_percentage': (execution.current_step_index / len(execution.steps)) * 100 if execution.steps else 0,
@@ -615,7 +648,7 @@ class WorkflowExecutionService:
             'steps': [
                 {
                     'agent_type': step.agent_type,
-                    'status': step.status.value,
+                    'status': step.status.value if hasattr(step.status, 'value') else str(step.status),
                     'session_id': step.session_id,
                     'error': step.error
                 }

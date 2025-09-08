@@ -79,16 +79,25 @@ async def ensure_database_initialized():
 
 def make_json_serializable(data):
     """Convert pandas/numpy types to JSON-serializable Python types"""
+    import pandas as pd
+    import numpy as np
+
     if isinstance(data, dict):
         return {k: make_json_serializable(v) for k, v in data.items()}
     elif isinstance(data, list):
         return [make_json_serializable(item) for item in data]
     elif pd.isna(data):
         return None
+    elif isinstance(data, pd.Timestamp):
+        return data.isoformat()
+    elif isinstance(data, np.datetime64):
+        return pd.Timestamp(data).isoformat()
     elif hasattr(data, 'isoformat'):  # datetime/Timestamp
         return data.isoformat()
     elif isinstance(data, (np.integer, np.floating)):
         return data.item() if not np.isnan(data) else None
+    elif isinstance(data, np.bool_):
+        return bool(data)
     elif hasattr(data, 'item') and hasattr(data, 'dtype'):
         return data.item()
     else:

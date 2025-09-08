@@ -37,30 +37,91 @@ export function SessionResultsViewer({ sessionId }: SessionResultsViewerProps) {
   const [activeTab, setActiveTab] = useState('data')
   const [detectedAgentType, setDetectedAgentType] = useState<AgentType | null>(null)
   const [isDetecting, setIsDetecting] = useState(false)
+  const [workflowContext, setWorkflowContext] = useState<any>(null)
   const { getSession } = useSessionsStore()
   const { toast } = useToast()
   
   const session = getSession(sessionId)
 
-  // Auto-detect agent type by trying training endpoints if session not found
+  // Check for workflow context and try to get workflow results
+  useEffect(() => {
+    const storedContext = localStorage.getItem(`workflow_context_${sessionId}`)
+    if (storedContext) {
+      try {
+        const context = JSON.parse(storedContext)
+        setWorkflowContext(context)
+        
+        // If we have workflow context but no session, try to create a synthetic session from workflow results
+        if (!session && context.workflowId) {
+          const tryGetWorkflowResults = async () => {
+            try {
+              // Import the workflow client
+              const { WorkflowClient } = await import('@/lib/workflow-client')
+              const workflowClient = new WorkflowClient()
+              
+              const workflowResults = await workflowClient.getWorkflowResults(context.workflowId)
+              
+              // Find the step that matches our session ID
+              const matchingStep = workflowResults.steps.find(step => step.session_id === sessionId)
+              if (matchingStep) {
+                setDetectedAgentType(matchingStep.agent_type as AgentType)
+              }
+            } catch (error) {
+              console.log('Could not get workflow results:', error)
+            }
+          }
+          
+          tryGetWorkflowResults()
+        }
+      } catch (error) {
+        console.error('Failed to parse workflow context:', error)
+      }
+    }
+  }, [sessionId, session])
+
+  // Auto-detect agent type by trying different endpoints if session not found
   useEffect(() => {
     if (!session && !detectedAgentType && !isDetecting) {
       setIsDetecting(true)
-      const tryDetectTraining = async () => {
-        try {
-          const trainingClient = getAgentClient('training')
-          const leaderboard = await trainingClient.getSessionLeaderboard(sessionId)
-          if (leaderboard.leaderboard) {
-            setDetectedAgentType('training')
+      const tryDetectAgentType = async () => {
+        // Try different agent types in order of likelihood
+        const agentTypes: AgentType[] = ['training', 'visualization', 'cleaning', 'loading', 'engineering', 'prediction']
+        
+        for (const agentType of agentTypes) {
+          try {
+            const client = getAgentClient(agentType)
+            
+            // Try different detection methods based on agent type
+            if (agentType === 'training') {
+              const leaderboard = await client.getSessionLeaderboard(sessionId)
+              if (leaderboard.leaderboard) {
+                setDetectedAgentType(agentType)
+                return
+              }
+            } else if (agentType === 'visualization') {
+              const chart = await client.getSessionChart(sessionId)
+              if (chart) {
+                setDetectedAgentType(agentType)
+                return
+              }
+            } else {
+              // For other agent types, try getting artifacts
+              const artifacts = await client.getSessionData(sessionId)
+              if (artifacts && artifacts.success) {
+                setDetectedAgentType(agentType)
+                return
+              }
+            }
+          } catch (error) {
+            // Continue trying other agent types
+            console.log(`Session not detected as ${agentType} type`)
           }
-        } catch (error) {
-          // Try other agent types if needed
-          console.log('Session not detected as training type')
-        } finally {
-          setIsDetecting(false)
         }
+        
+        console.log('Could not detect agent type for session:', sessionId)
       }
-      tryDetectTraining()
+      
+      tryDetectAgentType().finally(() => setIsDetecting(false))
     }
   }, [session, sessionId, detectedAgentType, isDetecting])
 
@@ -86,6 +147,8 @@ export function SessionResultsViewer({ sessionId }: SessionResultsViewerProps) {
         // Try different data endpoints based on agent type
         if (effectiveSession?.agentType === 'cleaning') {
           return await agentClient.getCleanedData(sessionId)
+        } else if (effectiveSession?.agentType === 'engineering') {
+          return await agentClient.getSessionData(sessionId)
         } else {
           return await agentClient.getSessionData(sessionId)
         }
@@ -341,14 +404,39 @@ export function SessionResultsViewer({ sessionId }: SessionResultsViewerProps) {
         <Card>
           <CardContent className="flex items-center justify-center h-64">
             <div className="text-center">
-              <div className="text-4xl mb-4">❓</div>
-              <h3 className="text-lg font-medium mb-2">Session Not Found</h3>
-              <p className="text-muted-foreground mb-4">
-                The session with ID {sessionId} was not found in your local storage.
-              </p>
-              <Link href="/">
-                <Button>Return to Dashboard</Button>
-              </Link>
+              {workflowContext ? (
+                <>
+                  <div className="text-4xl mb-4">🔄</div>
+                  <h3 className="text-lg font-medium mb-2">Workflow Results Loading</h3>
+                  <p className="text-muted-foreground mb-4">
+                    This session is part of the workflow: <strong>{workflowContext.workflowName}</strong>
+                  </p>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    The session may still be processing or the results are being prepared. 
+                    Please wait a moment and refresh the page.
+                  </p>
+                  <div className="flex gap-2 justify-center">
+                    <Button onClick={() => window.location.reload()}>
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                      Refresh
+                    </Button>
+                    <Link href="/workflows">
+                      <Button variant="outline">Back to Workflows</Button>
+                    </Link>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="text-4xl mb-4">❓</div>
+                  <h3 className="text-lg font-medium mb-2">Session Not Found</h3>
+                  <p className="text-muted-foreground mb-4">
+                    The session with ID {sessionId} was not found in your local storage.
+                  </p>
+                  <Link href="/">
+                    <Button>Return to Dashboard</Button>
+                  </Link>
+                </>
+              )}
             </div>
           </CardContent>
         </Card>

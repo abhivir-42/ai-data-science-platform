@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -12,7 +13,7 @@ import { ProgressIndicator } from '@/components/core/progress-indicator'
 import { visualizationClient } from '@/lib/uagent-client'
 import { useSessionsStore } from '@/lib/store'
 import { useToast } from '@/hooks/use-toast'
-import { BarChart3, ArrowRight } from 'lucide-react'
+import { BarChart3, ArrowRight, ArrowLeft } from 'lucide-react'
 import { PlotlyChart } from '@/components/core/plotly-chart'
 
 export function DataVisualizationWorkspace() {
@@ -33,7 +34,7 @@ export function DataVisualizationWorkspace() {
       })
     },
     onSuccess: (response) => {
-      if (response.success && response.plotly_chart) {
+      if (response && response.plotly_chart) {
         toast({
           title: "Chart Created Successfully! 🎉",
           description: `Generated ${response.chart_type} chart with interactive features`,
@@ -98,6 +99,15 @@ export function DataVisualizationWorkspace() {
     <div className="min-h-screen bg-gradient-to-br from-blue-50/30 via-white to-purple-50/30 p-6">
       <div className="max-w-4xl mx-auto space-y-6">
         {/* Header */}
+        <div className="flex items-center justify-between mb-6">
+          <Link href="/">
+            <Button variant="outline" size="sm">
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Back to Dashboard
+            </Button>
+          </Link>
+        </div>
+
         <div className="text-center space-y-2">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-r from-blue-500 to-purple-600 text-white mb-4">
             <BarChart3 className="h-8 w-8" />

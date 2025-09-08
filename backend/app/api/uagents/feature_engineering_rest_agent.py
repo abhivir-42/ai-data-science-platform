@@ -378,7 +378,7 @@ async def get_session_data_post(ctx: Context, req: SessionRequest) -> DataRespon
         
         fe_agent = session["agent"]
         engineered_df = fe_agent.get_data_engineered()
-        
+
         if engineered_df is None:
             return DataResponse(
                 success=False,
@@ -387,15 +387,31 @@ async def get_session_data_post(ctx: Context, req: SessionRequest) -> DataRespon
             )
         
         # Get original data for comparison
-        original_df = fe_agent.get_data_raw()
-        original_shape = list(original_df.shape) if original_df is not None else None
+        original_data = fe_agent.get_data_raw()
+        original_shape = None
+        if original_data is not None:
+            if hasattr(original_data, 'shape'):
+                # It's a DataFrame
+                original_shape = list(original_data.shape)
+            elif isinstance(original_data, dict) and 'records' in original_data:
+                # It's a dict with records (enhanced serialization format)
+                records = original_data['records']
+                if records:
+                    original_shape = [len(records), len(records[0]) if records else 0]
+            elif isinstance(original_data, list):
+                # It's a list of records
+                original_shape = [len(original_data), len(original_data[0]) if original_data else 0]
         
+        # Get processed shape safely
+        processed_shape = list(engineered_df.shape) if hasattr(engineered_df, 'shape') else None
+
+
         return DataResponse(
             success=True,
             message="Engineered data retrieved successfully",
             data=dataframe_to_json_safe(engineered_df),
             original_shape=original_shape,
-            processed_shape=list(engineered_df.shape)
+            processed_shape=processed_shape
         )
         
     except Exception as e:

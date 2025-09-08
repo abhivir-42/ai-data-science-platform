@@ -230,6 +230,9 @@ export function FeatureEngineeringWorkspace() {
                           value={targetVariable}
                           onChange={(e) => setTargetVariable(e.target.value)}
                         />
+                        <p className="mt-1 text-sm text-gray-600">
+                          🎯 The column you want to predict or analyze. Features will be engineered to help predict this variable.
+                        </p>
                       </div>
 
                       <div>
@@ -241,6 +244,15 @@ export function FeatureEngineeringWorkspace() {
                           onChange={(e) => setInstructions(e.target.value)}
                           rows={4}
                         />
+                        <div className="mt-2 text-sm text-gray-600">
+                          <p className="font-medium">💡 Example instructions:</p>
+                          <ul className="list-disc list-inside mt-1 space-y-1">
+                            <li>"Create polynomial features (degree 2) for numerical columns"</li>
+                            <li>"Generate interaction terms between age and income"</li>
+                            <li>"Create binning features for continuous variables"</li>
+                            <li>"Extract datetime features (month, day, hour) from date columns"</li>
+                          </ul>
+                        </div>
                       </div>
 
                       <div className="flex justify-end">
@@ -331,6 +343,27 @@ export function FeatureEngineeringWorkspace() {
 
           {/* Sidebar */}
           <div className="space-y-6">
+            {/* Information Card */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Wrench className="h-4 w-4" />
+                  About Feature Engineering
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm">
+                <p>
+                  <strong>🔧 What it does:</strong> Transforms raw data into meaningful features that improve machine learning model performance.
+                </p>
+                <p>
+                  <strong>📊 Common techniques:</strong> Polynomial features, interaction terms, normalization, categorical encoding, and datetime extraction.
+                </p>
+                <p>
+                  <strong>🎯 Goal:</strong> Create features that better represent patterns in your data for prediction.
+                </p>
+              </CardContent>
+            </Card>
+
             {/* Feature Options */}
             <Card>
               <CardHeader>
@@ -338,6 +371,9 @@ export function FeatureEngineeringWorkspace() {
                   <Settings className="h-4 w-4" />
                   Feature Options
                 </CardTitle>
+                <CardDescription>
+                  Configure automatic feature engineering techniques
+                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex items-center justify-between">

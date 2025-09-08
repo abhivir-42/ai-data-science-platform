@@ -10,6 +10,8 @@
  * - 8009: ML Prediction Agent
  */
 
+import type { SessionMeta } from './store';
+
 export type SessionId = string;
 
 // Base response types
@@ -143,6 +145,8 @@ export interface DataResponse {
     records: Array<Record<string, unknown>>;
     columns: string[];
   };
+  success?: boolean;
+  error?: string;
 }
 
 export interface CodeResponse {
@@ -152,6 +156,10 @@ export interface CodeResponse {
 
 export interface ChartResponse {
   figure?: unknown; // Plotly JSON
+  plotly_chart?: unknown; // Plotly JSON (alternative property name)
+  chart_type?: string;
+  success?: boolean;
+  error?: string;
 }
 
 export interface LeaderboardResponse {
@@ -202,6 +210,9 @@ const AGENT_BASE_URLS: Record<AgentType, string> = {
   training: `http://${DEFAULT_HOST}:${AGENT_PORTS.training}`,
   prediction: `http://${DEFAULT_HOST}:${AGENT_PORTS.prediction}`,
 };
+
+// Main backend API URL
+const BACKEND_API_URL = `http://${DEFAULT_HOST}:8000/api`;
 
 export class UAgentClient {
   private baseUrl: string;
@@ -563,8 +574,7 @@ export class UAgentClient {
     if (this.agentType !== 'training') {
       throw new Error('Full response only available for training agent');
     }
-    // 🚨 NOTE: This still uses GET endpoint - need to add POST version to backend
-    return this.getSessionResult(`/session/${sessionId}/full-response`);
+    return this.request<{success: boolean, data?: any, error?: string}>('/get-training-full-response', { session_id: sessionId });
   }
 }
 
@@ -593,5 +603,43 @@ export function getAgentClient(agentType: AgentType): UAgentClient {
       return predictionClient;
     default:
       throw new Error(`Unknown agent type: ${agentType}`);
+  }
+}
+
+// Session synchronization functions
+export async function getBackendSessions(agentType?: AgentType): Promise<SessionMeta[]> {
+  try {
+    const url = agentType 
+      ? `${BACKEND_API_URL}/agents/sessions?agent_type=${agentType}`
+      : `${BACKEND_API_URL}/agents/sessions`;
+      
+    const response = await fetch(url);
+    
+    if (!response.ok) {
+      throw new Error(`Failed to fetch sessions: ${response.statusText}`);
+    }
+    
+    const sessions = await response.json();
+    
+    // Convert backend session format to frontend SessionMeta format
+    return sessions.map((session: any) => ({
+      sessionId: session.session_id,
+      agentType: session.agent_type as AgentType,
+      createdAt: new Date(session.created_at * 1000).toISOString(), // Convert Unix timestamp
+      status: session.status as 'completed',
+      description: session.description,
+    }));
+  } catch (error) {
+    console.error('Failed to fetch backend sessions:', error);
+    return [];
+  }
+}
+
+export async function syncSessionsWithBackend(): Promise<SessionMeta[]> {
+  try {
+    return await getBackendSessions();
+  } catch (error) {
+    console.error('Session sync failed:', error);
+    return [];
   }
 }

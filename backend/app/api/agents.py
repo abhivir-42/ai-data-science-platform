@@ -9,6 +9,7 @@ from loguru import logger
 
 from app.core.agent_registry import agent_registry
 from app.services.agent_execution import agent_execution_service
+from app.services.session_service import session_service
 
 router = APIRouter()
 
@@ -37,6 +38,34 @@ async def list_agents() -> List[Dict[str, Any]]:
     except Exception as e:
         logger.error(f"Failed to list agents: {e}")
         raise HTTPException(status_code=500, detail="Failed to list agents")
+
+
+@router.get("/sessions")
+async def list_sessions(agent_type: Optional[str] = None) -> List[Dict[str, Any]]:
+    """List all active sessions"""
+    try:
+        session_ids = await session_service.list_sessions(agent_type)
+        sessions = []
+        for session_id in session_ids:
+            try:
+                session = await session_service.get_session(session_id)
+                if session:
+                    sessions.append({
+                        "session_id": session_id,
+                        "agent_type": session.get("agent_type"),
+                        "created_at": session.get("created_at"),
+                        "status": "completed",  # Assume completed if exists
+                        "description": f"Session for {session.get('agent_type', 'unknown')} agent"
+                    })
+            except Exception as e:
+                logger.warning(f"Failed to get session {session_id}: {e}")
+                continue
+        
+        logger.info(f"Listed {len(sessions)} active sessions")
+        return sessions
+    except Exception as e:
+        logger.error(f"Failed to list sessions: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to list sessions: {str(e)}")
 
 
 @router.get("/{agent_id}")

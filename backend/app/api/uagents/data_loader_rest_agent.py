@@ -55,6 +55,7 @@ from langchain_openai import ChatOpenAI
 from app.agents import DataLoaderToolsAgent
 from app.services.session_service import session_service
 from app.core.database import init_database
+from app.core.logging import logger
 
 # ============================================================================
 # Database Session Management (Replaced in-memory SessionStore)
@@ -77,16 +78,25 @@ async def ensure_database_initialized():
 
 def make_json_serializable(data):
     """Convert pandas/numpy types to JSON-serializable Python types"""
+    import pandas as pd
+    import numpy as np
+
     if isinstance(data, dict):
         return {k: make_json_serializable(v) for k, v in data.items()}
     elif isinstance(data, list):
         return [make_json_serializable(item) for item in data]
     elif pd.isna(data):
         return None
+    elif isinstance(data, pd.Timestamp):
+        return data.isoformat()
+    elif isinstance(data, np.datetime64):
+        return pd.Timestamp(data).isoformat()
     elif hasattr(data, 'isoformat'):  # datetime/Timestamp
         return data.isoformat()
     elif isinstance(data, (np.integer, np.floating)):
         return data.item() if not np.isnan(data) else None
+    elif isinstance(data, np.bool_):
+        return bool(data)
     elif hasattr(data, 'item') and hasattr(data, 'dtype'):
         return data.item()
     else:
@@ -327,28 +337,103 @@ async def load_file(ctx: Context, req: LoadFileRequest) -> SessionResponse:
         else:
             # Base64 content mode - decode and process directly
             try:
-                decoded = base64.b64decode(req.file_content)
-                file_content = decoded.decode("utf-8", errors="replace")
-                
-                # Validate that it's not empty
+                # Validate base64 content before decoding
+                if not req.file_content or not req.file_content.strip():
+                    return SessionResponse(
+                        success=False,
+                        message="Empty file content provided",
+                        session_id="",
+                        error="File content is empty or missing"
+                    )
+
+                # Check for basic base64 validity
+                if len(req.file_content) % 4 != 0 and not req.file_content.endswith('='):
+                    logger.warning(f"Base64 content length {len(req.file_content)} may be invalid (not multiple of 4)")
+
+                # Attempt base64 decoding with detailed error handling
+                try:
+                    decoded = base64.b64decode(req.file_content, validate=True)
+                except Exception as b64_error:
+                    logger.error(f"Base64 decoding failed: {b64_error}")
+                    return SessionResponse(
+                        success=False,
+                        message="Invalid base64 file content",
+                        session_id="",
+                        error=f"Base64 decoding failed: {str(b64_error)}. Content length: {len(req.file_content)}"
+                    )
+
+                # Decode to UTF-8 with error handling
+                try:
+                    file_content = decoded.decode("utf-8", errors="replace")
+                except Exception as decode_error:
+                    logger.error(f"UTF-8 decoding failed: {decode_error}")
+                    return SessionResponse(
+                        success=False,
+                        message="File content encoding error",
+                        session_id="",
+                        error=f"Failed to decode content as UTF-8: {str(decode_error)}"
+                    )
+
+                # Validate that it's not empty after decoding
                 if not file_content.strip():
                     return SessionResponse(
                         success=False,
-                        message="Empty file content",
+                        message="Empty file content after decoding",
                         session_id="",
-                        error="File content is empty after decoding"
+                        error="File content is empty after base64 decoding"
                     )
+
+                # Log successful decoding for debugging
+                logger.info(f"Successfully decoded base64 content: {len(file_content)} characters")
                 
-                # Parse CSV content into DataFrame
-                df = pd.read_csv(io.StringIO(file_content))
-                
+                # Parse CSV content into DataFrame with error handling
+                try:
+                    # Try to detect the separator
+                    sample = file_content[:1000]  # First 1000 chars for detection
+                    potential_separators = [',', '\t', ';', '|']
+                    detected_sep = ','  # default
+
+                    for sep in potential_separators:
+                        if sep in sample and sample.count(sep) > sample.count(detected_sep):
+                            detected_sep = sep
+
+                    # Parse CSV with detected separator
+                    df = pd.read_csv(io.StringIO(file_content), sep=detected_sep, engine='python')
+
+                except pd.errors.EmptyDataError:
+                    return SessionResponse(
+                        success=False,
+                        message="Empty or invalid CSV file",
+                        session_id="",
+                        error="File appears to be empty or contains no readable data"
+                    )
+                except pd.errors.ParserError as parse_error:
+                    logger.error(f"CSV parsing failed: {parse_error}")
+                    return SessionResponse(
+                        success=False,
+                        message="CSV parsing error",
+                        session_id="",
+                        error=f"Failed to parse CSV content: {str(parse_error)}. Check file format and separators."
+                    )
+                except Exception as csv_error:
+                    logger.error(f"Unexpected error during CSV parsing: {csv_error}")
+                    return SessionResponse(
+                        success=False,
+                        message="File processing error",
+                        session_id="",
+                        error=f"Failed to process file content: {str(csv_error)}"
+                    )
+
+                # Validate DataFrame after parsing
                 if df.empty:
                     return SessionResponse(
                         success=False,
                         message="Empty file",
                         session_id="",
-                        error="File contains no data rows"
+                        error="File contains no data rows after parsing"
                     )
+
+                logger.info(f"Successfully parsed CSV: {df.shape[0]} rows, {df.shape[1]} columns")
                 
                 # Create instructions for the agent
                 instructions = f"Process the uploaded data file"
@@ -816,6 +901,11 @@ async def delete_session(ctx: Context, req: DeleteSessionRequest) -> GenericResp
         )
 
 # ============================================================================
+# NOTE: GET endpoints with parameters removed due to uAgent framework limitations
+# Use POST endpoints instead (/get-artifacts, /get-ai-message, etc.)
+# ============================================================================
+
+# ============================================================================
 # Main Execution
 # ============================================================================
 
@@ -827,11 +917,10 @@ if __name__ == "__main__":
     print("   POST http://127.0.0.1:8005/load-directory")
     print("   POST http://127.0.0.1:8005/extract-pdf")
     print("   POST http://127.0.0.1:8005/get-artifacts")
-    print("   GET  http://127.0.0.1:8005/session/{id}/data")
-    print("   GET  http://127.0.0.1:8005/session/{id}/ai-message")
-    print("   GET  http://127.0.0.1:8005/session/{id}/tool-calls")
-    print("   GET  http://127.0.0.1:8005/session/{id}/internal-messages")
-    print("   GET  http://127.0.0.1:8005/session/{id}/full-response")
+    print("   POST http://127.0.0.1:8005/get-ai-message")
+    print("   POST http://127.0.0.1:8005/get-tool-calls")
+    print("   POST http://127.0.0.1:8005/get-internal-messages")
+    print("   POST http://127.0.0.1:8005/get-full-response")
     print("   GET  http://127.0.0.1:8005/supported-formats")
     print("   POST http://127.0.0.1:8005/delete-session")
     print("🚀 Agent starting...")
