@@ -191,7 +191,7 @@ export function WorkflowDashboard() {
             
             <div className="flex items-center space-x-6">
               <div className="text-right">
-                <div className="text-2xl font-bold text-gray-900">{sessions.length}</div>
+                <div className="text-2xl font-bold text-gray-900">{userSessions.length}</div>
                 <div className="text-sm text-gray-500">Total Sessions</div>
               </div>
               <div className="text-right">
@@ -376,7 +376,7 @@ export function WorkflowDashboard() {
         </section>
 
         {/* Recent Sessions */}
-        {sessions.length > 0 && (
+        {userSessions.length > 0 && (
           <section>
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-2xl font-bold text-gray-900">Recent Sessions</h2>
@@ -440,7 +440,7 @@ export function WorkflowDashboard() {
         )}
 
         {/* Empty state for new users */}
-        {sessions.length === 0 && (
+        {userSessions.length === 0 && (
           <section className="text-center py-16">
             <div className="max-w-md mx-auto">
               <div className="text-6xl mb-6">🚀</div>
