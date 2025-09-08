@@ -51,22 +51,24 @@ class SessionService:
         self.session_timeout_hours = session_timeout_hours
     
     async def create_session(
-        self, 
-        agent_instance: Any, 
+        self,
+        agent_instance: Any,
         agent_type: str,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
+        user_id: Optional[str] = None
     ) -> str:
         """
         Create a new agent session and store it in the database.
-        
+
         Args:
             agent_instance: The agent instance to store
             agent_type: Type of agent (cleaning, loading, visualization, etc.)
             metadata: Optional metadata to store with the session
-            
+            user_id: Optional user ID to associate with the session
+
         Returns:
             str: The session ID
-            
+
         Raises:
             AgentSerializationError: If agent serialization fails
         """
@@ -123,7 +125,8 @@ class SessionService:
                 agent_type=agent_type,
                 agent_data=serialized_agent,
                 session_metadata=enhanced_metadata,
-                expires_at=expires_at
+                expires_at=expires_at,
+                user_id=user_id
             )
 
             # Save to database
