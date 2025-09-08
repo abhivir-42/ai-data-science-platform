@@ -289,7 +289,7 @@ export function WorkflowDashboard() {
             {Object.entries(agentConfig).map(([agentType, config]) => {
               const Icon = config.icon
               const sessionCount = agentStats[agentType as AgentType] || 0
-              const recentSession = getSessionsByAgent(agentType as AgentType)[0]
+              const recentSession = getUserSessionsByAgent(agentType as AgentType)[0]
               
               return (
                 <Card key={agentType} className={cn(
