@@ -17,6 +17,7 @@ import { FileUploader } from '@/components/core/file-uploader'
 import { ProgressIndicator } from '@/components/core/progress-indicator'
 import { trainingClient } from '@/lib/uagent-client'
 import { useSessionsStore } from '@/lib/store'
+import { useSimpleAuth } from '@/lib/simple-auth-context'
 import { useToast } from '@/hooks/use-toast'
 import type { TrainModelParams } from '@/lib/uagent-client'
 
@@ -55,6 +56,7 @@ export function MLTrainingWorkspace() {
   
   const router = useRouter()
   const { addSession, sessions } = useSessionsStore()
+  const { user } = useSimpleAuth()
   const { toast } = useToast()
 
   // ML training mutation
@@ -70,6 +72,7 @@ export function MLTrainingWorkspace() {
           agentType: 'training',
           createdAt: new Date().toISOString(),
           status: 'completed',
+          userId: user?.user_id,
           description: sessionId 
             ? `Trained model on session ${sessionId.slice(0, 8)}... (target: ${targetVariable})`
             : `Trained model on uploaded data (target: ${targetVariable})`,

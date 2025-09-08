@@ -17,6 +17,7 @@ import { FileUploader } from '@/components/core/file-uploader'
 import { ProgressIndicator } from '@/components/core/progress-indicator'
 import { featureEngineeringClient } from '@/lib/uagent-client'
 import { useSessionsStore } from '@/lib/store'
+import { useSimpleAuth } from '@/lib/simple-auth-context'
 import { useToast } from '@/hooks/use-toast'
 import type { EngineerFeaturesParams } from '@/lib/uagent-client'
 
@@ -53,6 +54,7 @@ export function FeatureEngineeringWorkspace() {
   
   const router = useRouter()
   const { addSession, sessions } = useSessionsStore()
+  const { user } = useSimpleAuth()
   const { toast } = useToast()
 
   // Feature engineering mutation
@@ -68,9 +70,10 @@ export function FeatureEngineeringWorkspace() {
           agentType: 'engineering',
           createdAt: new Date().toISOString(),
           status: 'completed',
-          description: sessionId 
+          description: sessionId
             ? `Engineered features from session ${sessionId.slice(0, 8)}...`
             : `Engineered features from uploaded data`,
+          userId: user?.user_id,
           executionTimeSeconds: response.execution_time_seconds,
         })
 

@@ -118,7 +118,7 @@ const workflowTemplates = [
 ]
 
 export function WorkflowDashboard() {
-  const { sessions, getSessionsByAgent } = useSessionsStore()
+  const { getUserSessions, getUserSessionsByAgent } = useSessionsStore()
   const [agentStats, setAgentStats] = useState<Record<AgentType, number>>({} as any)
   const [isHydrated, setIsHydrated] = useState(false)
 
@@ -131,12 +131,13 @@ export function WorkflowDashboard() {
   useEffect(() => {
     const stats = {} as Record<AgentType, number>
     Object.keys(agentConfig).forEach(agentType => {
-      stats[agentType as AgentType] = getSessionsByAgent(agentType as AgentType).length
+      stats[agentType as AgentType] = getUserSessionsByAgent(agentType as AgentType).length
     })
     setAgentStats(stats)
-  }, [sessions, getSessionsByAgent])
+  }, [getUserSessionsByAgent])
 
-  const recentSessions = sessions.slice(0, 5)
+  const userSessions = getUserSessions()
+  const recentSessions = userSessions.slice(0, 5)
 
   // Don't render until hydrated to prevent hydration mismatch
   if (!isHydrated) {

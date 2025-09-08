@@ -16,6 +16,7 @@ import { FileUploader } from '@/components/core/file-uploader'
 import { ProgressIndicator } from '@/components/core/progress-indicator'
 import { predictionClient } from '@/lib/uagent-client'
 import { useSessionsStore } from '@/lib/store'
+import { useSimpleAuth } from '@/lib/simple-auth-context'
 import { useToast } from '@/hooks/use-toast'
 import type { PredictSingleParams, PredictBatchParams, AnalyzeModelParams } from '@/lib/uagent-client'
 
@@ -38,6 +39,7 @@ export function MLPredictionWorkspace() {
   
   const router = useRouter()
   const { addSession, sessions } = useSessionsStore()
+  const { user } = useSimpleAuth()
   const { toast } = useToast()
 
   // Single prediction mutation
@@ -54,6 +56,7 @@ export function MLPredictionWorkspace() {
           status: 'completed',
           description: `Single prediction using model ${modelSessionId.slice(0, 8)}...`,
           executionTimeSeconds: response.execution_time_seconds,
+          userId: user?.user_id,
         })
 
         toast({
@@ -89,6 +92,7 @@ export function MLPredictionWorkspace() {
           createdAt: new Date().toISOString(),
           status: 'completed',
           description: `Batch predictions using model ${modelSessionId.slice(0, 8)}...`,
+          userId: user?.user_id,
           executionTimeSeconds: response.execution_time_seconds,
         })
 
@@ -126,6 +130,7 @@ export function MLPredictionWorkspace() {
           status: 'completed',
           description: `Model analysis: ${analysisQuery.slice(0, 50)}...`,
           executionTimeSeconds: response.execution_time_seconds,
+          userId: user?.user_id,
         })
 
         toast({

@@ -15,6 +15,7 @@ import { FileUploader } from '@/components/core/file-uploader'
 import { ProgressIndicator } from '@/components/core/progress-indicator'
 import { dataLoaderClient } from '@/lib/uagent-client'
 import { useSessionsStore } from '@/lib/store'
+import { useSimpleAuth } from '@/lib/simple-auth-context'
 import { useToast } from '@/hooks/use-toast'
 import type { LoadFileParams, LoadDirectoryParams } from '@/lib/uagent-client'
 
@@ -26,6 +27,7 @@ export function DataLoaderWorkspace() {
   
   const router = useRouter()
   const { addSession } = useSessionsStore()
+  const { user } = useSimpleAuth()
   const { toast } = useToast()
 
   // File loading mutation
@@ -43,6 +45,7 @@ export function DataLoaderWorkspace() {
           status: 'completed',
           description: `Loaded ${uploadedFiles.length} file(s)`,
           executionTimeSeconds: response.execution_time_seconds,
+          userId: user?.user_id,
         })
 
         toast({
@@ -79,6 +82,7 @@ export function DataLoaderWorkspace() {
           createdAt: new Date().toISOString(),
           status: 'completed',
           description: `Loaded directory: ${directoryPath}`,
+          userId: user?.user_id,
           executionTimeSeconds: response.execution_time_seconds,
         })
 

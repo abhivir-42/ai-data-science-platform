@@ -17,6 +17,7 @@ import { FileUploader } from '@/components/core/file-uploader'
 import { ProgressIndicator } from '@/components/core/progress-indicator'
 import { dataCleaningClient } from '@/lib/uagent-client'
 import { useSessionsStore } from '@/lib/store'
+import { useSimpleAuth } from '@/lib/simple-auth-context'
 import { useToast } from '@/hooks/use-toast'
 import type { CleanDataParams } from '@/lib/uagent-client'
 
@@ -41,6 +42,7 @@ export function DataCleaningWorkspace() {
   
   const router = useRouter()
   const { addSession, sessions } = useSessionsStore()
+  const { user } = useSimpleAuth()
   const { toast } = useToast()
 
   // Data cleaning mutation
@@ -56,6 +58,7 @@ export function DataCleaningWorkspace() {
           agentType: 'cleaning',
           createdAt: new Date().toISOString(),
           status: 'completed',
+          userId: user?.user_id,
           description: sessionId 
             ? `Cleaned data from session ${sessionId.slice(0, 8)}...`
             : `Cleaned uploaded data`,

@@ -12,6 +12,7 @@ export interface SessionMeta {
   description?: string;
   executionTimeSeconds?: number;
   error?: string;
+  userId?: string; // Add user association for session isolation
 }
 
 // Workflow step interface
@@ -62,6 +63,14 @@ interface AppStore {
   getSession: (sessionId: SessionId) => SessionMeta | undefined;
   getSessionsByAgent: (agentType: AgentType) => SessionMeta[];
   clearSessions: () => void;
+
+  // User-specific session isolation
+  currentUserId: string | null;
+  setCurrentUser: (userId: string | null) => void;
+  getUserSessions: () => SessionMeta[];
+  getUserSessionsByAgent: (agentType: AgentType) => SessionMeta[];
+  clearUserSessions: () => void;
+  migrateLegacySessions: (userId: string) => void;
   
   // Workflow chains
   workflows: WorkflowChain[];
@@ -99,6 +108,7 @@ export const useAppStore = create<AppStore>()(
       workflows: [],
       activeWorkflow: null,
       uploadQueue: [],
+      currentUserId: null,
       ui: {
         activeAgent: null,
         currentTab: 'data',
@@ -138,6 +148,42 @@ export const useAppStore = create<AppStore>()(
       
       clearSessions: () => {
         set({ sessions: [] })
+      },
+
+      // User-specific session isolation implementation
+      setCurrentUser: (userId) => {
+        set({ currentUserId: userId })
+      },
+
+      getUserSessions: () => {
+        const { sessions, currentUserId } = get()
+        if (!currentUserId) return []
+        return sessions.filter((session) => session.userId === currentUserId)
+      },
+
+      getUserSessionsByAgent: (agentType) => {
+        const { sessions, currentUserId } = get()
+        if (!currentUserId) return []
+        return sessions.filter((session) =>
+          session.agentType === agentType && session.userId === currentUserId
+        )
+      },
+
+      clearUserSessions: () => {
+        const { sessions, currentUserId } = get()
+        if (!currentUserId) return
+        const filteredSessions = sessions.filter((session) => session.userId !== currentUserId)
+        set({ sessions: filteredSessions })
+      },
+
+      // Migration function for legacy sessions
+      migrateLegacySessions: (userId: string) => {
+        set((state) => ({
+          sessions: state.sessions.map((session) => ({
+            ...session,
+            userId: session.userId || userId, // Assign userId to sessions without one
+          }))
+        }))
       },
       
       // Workflow chain actions
@@ -283,7 +329,27 @@ export const useAppStore = create<AppStore>()(
       partialize: (state) => ({
         sessions: state.sessions,
         workflows: state.workflows,
+        currentUserId: state.currentUserId,
       }),
+      // Custom storage to make it user-specific
+      storage: {
+        getItem: (name) => {
+          const userId = localStorage.getItem('current_user_id');
+          const key = userId ? `${name}_${userId}` : name;
+          const value = localStorage.getItem(key);
+          return value ? JSON.parse(value) : null;
+        },
+        setItem: (name, value) => {
+          const userId = localStorage.getItem('current_user_id');
+          const key = userId ? `${name}_${userId}` : name;
+          localStorage.setItem(key, JSON.stringify(value));
+        },
+        removeItem: (name) => {
+          const userId = localStorage.getItem('current_user_id');
+          const key = userId ? `${name}_${userId}` : name;
+          localStorage.removeItem(key);
+        },
+      },
     }
   )
 )

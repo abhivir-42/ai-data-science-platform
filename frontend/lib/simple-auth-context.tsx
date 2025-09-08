@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { useAppStore } from './store';
 
 interface SimpleUser {
   user_id: string;
@@ -70,6 +71,15 @@ export function SimpleAuthProvider({ children }: { children: React.ReactNode }) 
           user_id: data.user_id,
           username: username,
         });
+
+        // Set current user in session store for session isolation
+        useAppStore.getState().setCurrentUser(data.user_id);
+
+        // Set user ID in localStorage for custom storage
+        localStorage.setItem('current_user_id', data.user_id);
+
+        // Migrate any legacy sessions to this user
+        useAppStore.getState().migrateLegacySessions(data.user_id);
       } else {
         throw new Error(data.message || 'Login failed');
       }
@@ -116,6 +126,12 @@ export function SimpleAuthProvider({ children }: { children: React.ReactNode }) 
     // Clear local state and storage
     localStorage.removeItem('session_id');
     setUser(null);
+
+    // Clear current user from session store
+    useAppStore.getState().setCurrentUser(null);
+
+    // Clear user ID from localStorage
+    localStorage.removeItem('current_user_id');
   };
 
   const value = {

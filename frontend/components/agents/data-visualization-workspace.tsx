@@ -12,6 +12,7 @@ import { FileUploader } from '@/components/core/file-uploader'
 import { ProgressIndicator } from '@/components/core/progress-indicator'
 import { visualizationClient } from '@/lib/uagent-client'
 import { useSessionsStore } from '@/lib/store'
+import { useSimpleAuth } from '@/lib/simple-auth-context'
 import { useToast } from '@/hooks/use-toast'
 import { BarChart3, ArrowRight, ArrowLeft } from 'lucide-react'
 import { PlotlyChart } from '@/components/core/plotly-chart'
@@ -23,6 +24,7 @@ export function DataVisualizationWorkspace() {
   const router = useRouter()
   const { toast } = useToast()
   const { addSession } = useSessionsStore()
+  const { user } = useSimpleAuth()
 
   const createChartMutation = useMutation({
     mutationFn: async (params: { file_content: string; filename?: string; user_instructions?: string }) => {
@@ -300,6 +302,7 @@ export function DataVisualizationWorkspace() {
                       createdAt: new Date().toISOString(),
                       status: 'completed',
                       description: `Direct chart: ${file?.name || 'visualization'}`,
+                      userId: user?.user_id,
                     });
                     router.push(`/sessions/${sessionId}`);
                   }}
