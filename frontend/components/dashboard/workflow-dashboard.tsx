@@ -390,7 +390,7 @@ export function WorkflowDashboard() {
               <CardContent className="p-0">
                 <div className="divide-y divide-gray-100">
                   {recentSessions.map((session) => {
-                    const config = agentConfig[session.agentType]
+                    const config = agentConfig[session.agentType as AgentType]
                     const Icon = config.icon
                     
                     return (

@@ -57,7 +57,7 @@ export interface WorkflowTemplate {
 export class WorkflowClient {
   private baseUrl: string;
   
-  constructor(baseUrl: string = 'http://localhost:8000/api') {
+  constructor(baseUrl: string = '/api') {
     this.baseUrl = baseUrl;
   }
 
