@@ -15,6 +15,7 @@ from uuid import uuid4
 from sqlalchemy import select, delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from loguru import logger
+from fastapi import HTTPException
 
 from app.core.database import database_manager
 from app.models.session import AgentSession
@@ -151,12 +152,13 @@ class SessionService:
             logger.error(f"Failed to create session for agent type '{agent_type}': {e}")
             raise AgentSerializationError(f"Session creation failed: {e}")
     
-    async def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
+    async def get_session(self, session_id: str, user_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """
         Get a session by ID, including the deserialized agent instance.
         
         Args:
             session_id: The session ID to retrieve
+            user_id: Optional user ID for session ownership validation
             
         Returns:
             Dict containing:
@@ -167,6 +169,7 @@ class SessionService:
             
         Raises:
             AgentSerializationError: If agent deserialization fails
+            ValueError: If user_id is provided but session belongs to different user
         """
         try:
             async with database_manager.async_session_maker() as db_session:
@@ -178,6 +181,13 @@ class SessionService:
                 if not session_record:
                     logger.warning(f"Session {session_id} not found")
                     return None
+                
+                # Validate user ownership if user_id is provided
+                if user_id is not None:
+                    if session_record.user_id != user_id:
+                        logger.warning(f"Session {session_id} access denied: belongs to user {session_record.user_id}, requested by {user_id}")
+                        raise ValueError(f"Access denied: Session belongs to another user")
+                    logger.debug(f"Session {session_id} ownership validated for user {user_id}")
                 
                 # Check if session has expired
                 if session_record.is_expired():
@@ -220,6 +230,33 @@ class SessionService:
             logger.error(f"Failed to get session {session_id}: {e}")
             if "deserializ" in str(e).lower():
                 raise AgentSerializationError(f"Agent deserialization failed: {e}")
+            raise
+    
+    async def get_session_with_auth(self, session_id: str, user_id: Optional[str]) -> Dict[str, Any]:
+        """
+        Get a session with authentication, raising HTTPException on errors.
+        
+        This is a convenience method for FastAPI endpoints that handles
+        authentication errors by raising appropriate HTTP exceptions.
+        
+        Args:
+            session_id: The session ID to retrieve
+            user_id: The user ID for ownership validation (None for uAgent access)
+            
+        Returns:
+            Dict containing session data
+            
+        Raises:
+            HTTPException: 404 if session not found, 403 if access denied
+        """
+        try:
+            session = await self.get_session(session_id, user_id)
+            if session is None:
+                raise HTTPException(status_code=404, detail="Session not found")
+            return session
+        except ValueError as e:
+            if "Access denied" in str(e):
+                raise HTTPException(status_code=403, detail="Access denied: Session belongs to another user")
             raise
     
     async def delete_session(self, session_id: str) -> bool:
