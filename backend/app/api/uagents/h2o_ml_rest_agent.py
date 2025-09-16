@@ -24,6 +24,7 @@ from typing import Optional, Dict, Any, List
 from dotenv import load_dotenv
 import pandas as pd
 import numpy as np
+from fastapi import Request
 import logging
 
 logger = logging.getLogger(__name__)
@@ -365,10 +366,14 @@ async def train_model(ctx: Context, req: TrainModelRequest) -> SessionResponse:
 async def train_model_from_session(ctx: Context, req: TrainModelFromSessionRequest) -> SessionResponse:
     """Train ML model with H2O AutoML using data from a previous session"""
     try:
+        # Extract user_id from request for session ownership validation
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
         start_time = time.time()
         
-        # Get the source session
-        session_result = await session_service.get_session(req.source_session_id)
+        # Get the source session with authentication
+        session_result = await session_service.get_session_with_auth(req.source_session_id, user_id)
         if not session_result:
             return SessionResponse(
                 success=False,
@@ -658,7 +663,11 @@ async def train_model_csv(ctx: Context, req: TrainModelCsvRequest) -> SessionRes
 async def get_training_full_response(ctx: Context, req: SessionRequest) -> GenericResponse:
     """Get complete training agent response from session"""
     try:
-        session_result = await session_service.get_session(req.session_id)
+        # Extract user_id from request for session ownership validation
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
+        session_result = await session_service.get_session_with_auth(req.session_id, user_id)
         if not session_result:
             return GenericResponse(
                 success=False,
@@ -715,7 +724,11 @@ class DeleteSessionRequest(Model):
 async def get_leaderboard_post(ctx: Context, req: SessionRequest) -> LeaderboardResponse:
     """Get leaderboard from session (POST version)"""
     try:
-        session_result = await session_service.get_session(req.session_id)
+        # Extract user_id from request for session ownership validation
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
+        session_result = await session_service.get_session_with_auth(req.session_id, user_id)
         if not session_result:
             return LeaderboardResponse(
                 success=False,
@@ -755,7 +768,11 @@ async def get_leaderboard_post(ctx: Context, req: SessionRequest) -> Leaderboard
 async def get_training_function_post(ctx: Context, req: SessionRequest) -> CodeResponse:
     """Get training function from session (POST version)"""
     try:
-        session_result = await session_service.get_session(req.session_id)
+        # Extract user_id from request for session ownership validation
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
+        session_result = await session_service.get_session_with_auth(req.session_id, user_id)
         if not session_result:
             return CodeResponse(
                 success=False,
@@ -795,7 +812,11 @@ async def get_training_function_post(ctx: Context, req: SessionRequest) -> CodeR
 async def get_ml_steps_post(ctx: Context, req: SessionRequest) -> GenericResponse:
     """Get ML recommendations from session (POST version)"""
     try:
-        session_result = await session_service.get_session(req.session_id)
+        # Extract user_id from request for session ownership validation
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
+        session_result = await session_service.get_session_with_auth(req.session_id, user_id)
         if not session_result:
             return GenericResponse(
                 success=False,
@@ -835,7 +856,11 @@ async def get_ml_steps_post(ctx: Context, req: SessionRequest) -> GenericRespons
 async def get_original_data_post(ctx: Context, req: SessionRequest) -> DataResponse:
     """Get original training dataset from session (POST version)"""
     try:
-        session_result = await session_service.get_session(req.session_id)
+        # Extract user_id from request for session ownership validation
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
+        session_result = await session_service.get_session_with_auth(req.session_id, user_id)
         if not session_result:
             return DataResponse(
                 success=False,
@@ -878,7 +903,11 @@ async def get_original_data_post(ctx: Context, req: SessionRequest) -> DataRespo
 async def get_logs_post(ctx: Context, req: SessionRequest) -> GenericResponse:
     """Get training execution logs from session (POST version)"""
     try:
-        session_result = await session_service.get_session(req.session_id)
+        # Extract user_id from request for session ownership validation
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
+        session_result = await session_service.get_session_with_auth(req.session_id, user_id)
         if not session_result:
             return GenericResponse(
                 success=False,
@@ -914,7 +943,11 @@ async def get_logs_post(ctx: Context, req: SessionRequest) -> GenericResponse:
 async def get_best_model_id_post(ctx: Context, req: SessionRequest) -> ModelInfoResponse:
     """Get best model ID from session (POST version)"""
     try:
-        session_result = await session_service.get_session(req.session_id)
+        # Extract user_id from request for session ownership validation
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
+        session_result = await session_service.get_session_with_auth(req.session_id, user_id)
         if not session_result:
             return ModelInfoResponse(
                 success=False,
@@ -954,7 +987,11 @@ async def get_best_model_id_post(ctx: Context, req: SessionRequest) -> ModelInfo
 async def get_model_path_post(ctx: Context, req: SessionRequest) -> ModelInfoResponse:
     """Get model path from session (POST version)"""
     try:
-        session_result = await session_service.get_session(req.session_id)
+        # Extract user_id from request for session ownership validation
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
+        session_result = await session_service.get_session_with_auth(req.session_id, user_id)
         if not session_result:
             return ModelInfoResponse(
                 success=False,
@@ -994,7 +1031,11 @@ async def get_model_path_post(ctx: Context, req: SessionRequest) -> ModelInfoRes
 async def get_workflow_summary_post(ctx: Context, req: SessionRequest) -> GenericResponse:
     """Get workflow summary from session (POST version)"""
     try:
-        session_result = await session_service.get_session(req.session_id)
+        # Extract user_id from request for session ownership validation
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
+        session_result = await session_service.get_session_with_auth(req.session_id, user_id)
         if not session_result:
             return GenericResponse(
                 success=False,

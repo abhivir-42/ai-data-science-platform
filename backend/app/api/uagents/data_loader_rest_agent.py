@@ -23,6 +23,7 @@ from typing import Optional, Dict, Any, List
 from dotenv import load_dotenv
 import pandas as pd
 import numpy as np
+from fastapi import Request
 
 def _ensure_project_root_on_path():
     """Add project root and backend to sys.path for imports"""
@@ -282,6 +283,10 @@ async def load_file(ctx: Context, req: LoadFileRequest) -> SessionResponse:
         # Ensure database is initialized
         await ensure_database_initialized()
         
+        # Extract user_id from request for session association
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
         start_time = time.time()
         
         # Validate request parameters
@@ -323,8 +328,10 @@ async def load_file(ctx: Context, req: LoadFileRequest) -> SessionResponse:
                     "operation": "load_file",
                     "file_path": req.file_path,
                     "user_instructions": req.user_instructions,
-                    "execution_time": execution_time
-                }
+                    "execution_time": execution_time,
+                    "authenticated_user": user_id is not None
+                },
+                user_id=user_id
             )
             
             return SessionResponse(
@@ -450,7 +457,7 @@ async def load_file(ctx: Context, req: LoadFileRequest) -> SessionResponse:
                 
                 execution_time = time.time() - start_time
                 
-                # Create session using centralized service
+                # Create session using centralized service with user association
                 session_id = await session_service.create_session(
                     agent_instance=loader_agent,
                     agent_type="loading",
@@ -460,8 +467,10 @@ async def load_file(ctx: Context, req: LoadFileRequest) -> SessionResponse:
                         "user_instructions": req.user_instructions,
                         "original_shape": list(df.shape),
                         "direct_data_mode": True,
-                        "execution_time": execution_time
-                    }
+                        "execution_time": execution_time,
+                        "authenticated_user": user_id is not None
+                    },
+                    user_id=user_id
                 )
                 
                 return SessionResponse(
@@ -494,6 +503,10 @@ async def load_directory(ctx: Context, req: LoadDirectoryRequest) -> SessionResp
         # Ensure database is initialized
         await ensure_database_initialized()
         
+        # Extract user_id from request for session association
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
         start_time = time.time()
         
         # Create agent instance
@@ -509,7 +522,7 @@ async def load_directory(ctx: Context, req: LoadDirectoryRequest) -> SessionResp
         
         execution_time = time.time() - start_time
         
-        # Create session
+        # Create session with user association
         session_id = await session_service.create_session(
             agent_instance=loader_agent,
             agent_type="loading",
@@ -517,8 +530,10 @@ async def load_directory(ctx: Context, req: LoadDirectoryRequest) -> SessionResp
                 "operation": "load_directory",
                 "directory_path": req.directory_path,
                 "user_instructions": req.user_instructions,
-                "execution_time": execution_time
-            }
+                "execution_time": execution_time,
+                "authenticated_user": user_id is not None
+            },
+            user_id=user_id
         )
         
         return SessionResponse(
@@ -543,6 +558,10 @@ async def extract_pdf(ctx: Context, req: ExtractPDFRequest) -> SessionResponse:
         # Ensure database is initialized
         await ensure_database_initialized()
         
+        # Extract user_id from request for session association
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
         start_time = time.time()
         
         # Create agent instance
@@ -564,7 +583,7 @@ async def extract_pdf(ctx: Context, req: ExtractPDFRequest) -> SessionResponse:
         
         execution_time = time.time() - start_time
         
-        # Create session
+        # Create session with user association
         session_id = await session_service.create_session(
             agent_instance=loader_agent,
             agent_type="loading",
@@ -573,8 +592,10 @@ async def extract_pdf(ctx: Context, req: ExtractPDFRequest) -> SessionResponse:
                 "pdf_path": req.pdf_path,
                 "extraction_type": req.extraction_type,
                 "user_instructions": req.user_instructions,
-                "execution_time": execution_time
-            }
+                "execution_time": execution_time,
+                "authenticated_user": user_id is not None
+            },
+            user_id=user_id
         )
         
         return SessionResponse(
@@ -604,7 +625,11 @@ class SessionRequest(Model):
 async def get_artifacts(ctx: Context, req: SessionRequest) -> DataResponse:
     """Get loaded data artifacts from session"""
     try:
-        session = await session_service.get_session(req.session_id)
+        # Extract user_id from request for session ownership validation
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
+        session = await session_service.get_session_with_auth(req.session_id, user_id)
         if not session:
             return DataResponse(
                 success=False,
@@ -657,7 +682,11 @@ async def get_artifacts(ctx: Context, req: SessionRequest) -> DataResponse:
 async def get_ai_message(ctx: Context, req: SessionRequest) -> GenericResponse:
     """Get AI message from session"""
     try:
-        session = await session_service.get_session(req.session_id)
+        # Extract user_id from request for session ownership validation
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
+        session = await session_service.get_session_with_auth(req.session_id, user_id)
         if not session:
             return GenericResponse(
                 success=False,
@@ -704,7 +733,11 @@ async def get_ai_message(ctx: Context, req: SessionRequest) -> GenericResponse:
 async def get_tool_calls(ctx: Context, req: SessionRequest) -> GenericResponse:
     """Get tool calls from session"""
     try:
-        session = await session_service.get_session(req.session_id)
+        # Extract user_id from request for session ownership validation
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
+        session = await session_service.get_session_with_auth(req.session_id, user_id)
         if not session:
             return GenericResponse(
                 success=False,
@@ -741,7 +774,11 @@ async def get_tool_calls(ctx: Context, req: SessionRequest) -> GenericResponse:
 async def get_internal_messages(ctx: Context, req: SessionRequest) -> GenericResponse:
     """Get internal messages from session"""
     try:
-        session = await session_service.get_session(req.session_id)
+        # Extract user_id from request for session ownership validation
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
+        session = await session_service.get_session_with_auth(req.session_id, user_id)
         if not session:
             return GenericResponse(
                 success=False,
@@ -794,7 +831,11 @@ async def get_internal_messages(ctx: Context, req: SessionRequest) -> GenericRes
 async def get_full_response(ctx: Context, req: SessionRequest) -> GenericResponse:
     """Get complete agent response from session"""
     try:
-        session = await session_service.get_session(req.session_id)
+        # Extract user_id from request for session ownership validation
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
+        session = await session_service.get_session_with_auth(req.session_id, user_id)
         if not session:
             return GenericResponse(
                 success=False,

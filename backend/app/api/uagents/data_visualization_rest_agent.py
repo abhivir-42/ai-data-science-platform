@@ -23,6 +23,7 @@ from typing import Optional, Dict, Any, List
 from dotenv import load_dotenv
 import pandas as pd
 import numpy as np
+from fastapi import Request
 
 def _ensure_project_root_on_path():
     """Add project root and backend to sys.path for imports"""
@@ -204,7 +205,10 @@ async def create_chart(ctx: Context, req: CreateChartRequest) -> SessionResponse
     """Create visualization from dataset provided as dictionary data and create session"""
     try:
         # Ensure database is initialized
-        await ensure_database_initialized()
+        await ensure_database_initialized()        
+        # Extract user_id from request for session association
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
         
         start_time = time.time()
         
@@ -239,8 +243,10 @@ async def create_chart(ctx: Context, req: CreateChartRequest) -> SessionResponse
                 "operation": "create_chart",
                 "user_instructions": req.user_instructions,
                 "original_shape": list(df.shape),
-                "execution_time": execution_time
-            }
+                "execution_time": execution_time,
+                "authenticated_user": user_id is not None
+            },
+            user_id=user_id
         )
         
         return SessionResponse(
@@ -263,7 +269,10 @@ async def create_chart_csv(ctx: Context, req: CreateChartCsvRequest) -> SessionR
     """Create visualization from dataset provided as base64-encoded CSV file and create session"""
     try:
         # Ensure database is initialized
-        await ensure_database_initialized()
+        await ensure_database_initialized()        
+        # Extract user_id from request for session association
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
         
         start_time = time.time()
         
@@ -309,8 +318,10 @@ async def create_chart_csv(ctx: Context, req: CreateChartCsvRequest) -> SessionR
                 "filename": req.filename,
                 "user_instructions": req.user_instructions,
                 "original_shape": list(df.shape),
-                "execution_time": execution_time
-            }
+                "execution_time": execution_time,
+                "authenticated_user": user_id is not None
+            },
+            user_id=user_id
         )
         
         return SessionResponse(
@@ -333,12 +344,15 @@ async def create_chart_from_session(ctx: Context, req: CreateChartFromSessionReq
     """Create visualization from data in existing session"""
     try:
         # Ensure database is initialized
-        await ensure_database_initialized()
-
+        await ensure_database_initialized()        
+        # Extract user_id from request for session association
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
         start_time = time.time()
 
         # Get data from the specified session
-        session_data = await session_service.get_session(req.session_id)
+        session_data = await session_service.get_session_with_auth(req.session_id, user_id)
         if not session_data:
             return SessionResponse(
                 success=False,
@@ -423,8 +437,10 @@ async def create_chart_from_session(ctx: Context, req: CreateChartFromSessionReq
                 "source_session_id": req.session_id,
                 "user_instructions": req.user_instructions,
                 "original_shape": list(df.shape),
-                "execution_time": execution_time
-            }
+                "execution_time": execution_time,
+                "authenticated_user": user_id is not None
+            },
+            user_id=user_id
         )
 
         return SessionResponse(
@@ -450,7 +466,11 @@ async def create_chart_from_session(ctx: Context, req: CreateChartFromSessionReq
 async def get_plotly_graph(ctx: Context, session_id: str) -> ChartResponse:
     """Get generated Plotly chart from session"""
     try:
-        session = await session_service.get_session(session_id)
+        # Extract user_id from request for session ownership validation
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
+        session = await session_service.get_session_with_auth(session_id, user_id)
         if not session:
             return ChartResponse(
                 success=False,
@@ -507,7 +527,11 @@ async def get_plotly_graph(ctx: Context, session_id: str) -> ChartResponse:
 async def get_visualization_function(ctx: Context, session_id: str) -> CodeResponse:
     """Get generated Python visualization function from session"""
     try:
-        session = await session_service.get_session(session_id)
+        # Extract user_id from request for session ownership validation
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
+        session = await session_service.get_session_with_auth(session_id, user_id)
         if not session:
             return CodeResponse(
                 success=False,
@@ -543,7 +567,11 @@ async def get_visualization_function(ctx: Context, session_id: str) -> CodeRespo
 async def get_visualization_steps(ctx: Context, session_id: str) -> GenericResponse:
     """Get recommended visualization steps from session"""
     try:
-        session = await session_service.get_session(session_id)
+        # Extract user_id from request for session ownership validation
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
+        session = await session_service.get_session_with_auth(session_id, user_id)
         if not session:
             return GenericResponse(
                 success=False,
@@ -571,7 +599,11 @@ async def get_visualization_steps(ctx: Context, session_id: str) -> GenericRespo
 async def get_original_data(ctx: Context, session_id: str) -> DataResponse:
     """Get original dataset from session"""
     try:
-        session = await session_service.get_session(session_id)
+        # Extract user_id from request for session ownership validation
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
+        session = await session_service.get_session_with_auth(session_id, user_id)
         if not session:
             return DataResponse(
                 success=False,
@@ -608,7 +640,11 @@ async def get_original_data(ctx: Context, session_id: str) -> DataResponse:
 async def get_workflow_summary(ctx: Context, session_id: str) -> GenericResponse:
     """Get workflow summary from session"""
     try:
-        session = await session_service.get_session(session_id)
+        # Extract user_id from request for session ownership validation
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
+        session = await session_service.get_session_with_auth(session_id, user_id)
         if not session:
             return GenericResponse(
                 success=False,
@@ -636,7 +672,11 @@ async def get_workflow_summary(ctx: Context, session_id: str) -> GenericResponse
 async def get_logs(ctx: Context, session_id: str) -> GenericResponse:
     """Get execution logs from session"""
     try:
-        session = await session_service.get_session(session_id)
+        # Extract user_id from request for session ownership validation
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
+        session = await session_service.get_session_with_auth(session_id, user_id)
         if not session:
             return GenericResponse(
                 success=False,
@@ -664,7 +704,11 @@ async def get_logs(ctx: Context, session_id: str) -> GenericResponse:
 async def get_full_response(ctx: Context, session_id: str) -> GenericResponse:
     """Get complete agent response from session"""
     try:
-        session = await session_service.get_session(session_id)
+        # Extract user_id from request for session ownership validation
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
+        session = await session_service.get_session_with_auth(session_id, user_id)
         if not session:
             return GenericResponse(
                 success=False,
@@ -814,8 +858,12 @@ async def create_chart_direct(ctx: Context, req: CreateChartCsvRequest) -> Chart
 async def get_plotly_graph_post(ctx: Context, req: SessionRequest) -> ChartResponse:
     """Get Plotly graph from session (POST version)"""
     try:
+        # Extract user_id from request for session ownership validation
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
         print(f"[DEBUG] Requesting chart for session: {req.session_id}")
-        session = await session_service.get_session(req.session_id)
+        session = await session_service.get_session_with_auth(req.session_id, user_id)
         if not session:
             print(f"[DEBUG] Session {req.session_id} not found in store")
             return ChartResponse(
@@ -852,7 +900,11 @@ async def get_plotly_graph_post(ctx: Context, req: SessionRequest) -> ChartRespo
 async def get_visualization_function_post(ctx: Context, req: SessionRequest) -> CodeResponse:
     """Get visualization function from session (POST version)"""
     try:
-        session = await session_service.get_session(req.session_id)
+        # Extract user_id from request for session ownership validation
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
+        session = await session_service.get_session_with_auth(req.session_id, user_id)
         if not session:
             return CodeResponse(
                 success=False,
@@ -886,7 +938,11 @@ async def get_visualization_function_post(ctx: Context, req: SessionRequest) -> 
 async def get_visualization_steps_post(ctx: Context, req: SessionRequest) -> GenericResponse:
     """Get visualization recommendations from session (POST version)"""
     try:
-        session = await session_service.get_session(req.session_id)
+        # Extract user_id from request for session ownership validation
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
+        session = await session_service.get_session_with_auth(req.session_id, user_id)
         if not session:
             return GenericResponse(
                 success=False,

@@ -21,10 +21,12 @@ import base64
 import uuid
 import time
 import requests
+from uuid import uuid4
 from typing import Optional, Dict, Any, List
 from dotenv import load_dotenv
 import pandas as pd
 import numpy as np
+from fastapi import Request
 
 def _ensure_project_root_on_path():
     """Add project root and backend to sys.path for imports"""
@@ -294,6 +296,10 @@ async def clean_data(ctx: Context, req: CleanDataRequest) -> SessionResponse:
         # Ensure database is initialized
         await ensure_database_initialized()
         
+        # Extract user_id from request for session association
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
         start_time = time.time()
         
         # Create agent instance
@@ -319,7 +325,7 @@ async def clean_data(ctx: Context, req: CleanDataRequest) -> SessionResponse:
         
         execution_time = time.time() - start_time
         
-        # Create session using centralized service
+        # Create session using centralized service with user association
         session_id = await session_service.create_session(
             agent_instance=cleaning_agent,
             agent_type="cleaning",
@@ -327,8 +333,10 @@ async def clean_data(ctx: Context, req: CleanDataRequest) -> SessionResponse:
                 "operation": "clean_data",
                 "user_instructions": req.user_instructions,
                 "original_shape": list(df.shape),
-                "execution_time": execution_time
-            }
+                "execution_time": execution_time,
+                "authenticated_user": user_id is not None
+            },
+            user_id=user_id
         )
         
         return SessionResponse(
@@ -352,6 +360,10 @@ async def clean_csv(ctx: Context, req: CleanCsvRequest) -> SessionResponse:
     try:
         # Ensure database is initialized
         await ensure_database_initialized()
+        
+        # Extract user_id from request for session association
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
         
         start_time = time.time()
         
@@ -388,7 +400,7 @@ async def clean_csv(ctx: Context, req: CleanCsvRequest) -> SessionResponse:
         
         execution_time = time.time() - start_time
         
-        # Create session using centralized service
+        # Create session using centralized service with user association
         session_id = await session_service.create_session(
             agent_instance=cleaning_agent,
             agent_type="cleaning",
@@ -397,8 +409,10 @@ async def clean_csv(ctx: Context, req: CleanCsvRequest) -> SessionResponse:
                 "filename": req.filename,
                 "user_instructions": req.user_instructions,
                 "original_shape": list(df.shape),
-                "execution_time": execution_time
-            }
+                "execution_time": execution_time,
+                "authenticated_user": user_id is not None
+            },
+            user_id=user_id
         )
         
         return SessionResponse(
@@ -422,6 +436,10 @@ async def clean_from_session(ctx: Context, req: CleanFromSessionRequest) -> Sess
     try:
         # Ensure database is initialized
         await ensure_database_initialized()
+        
+        # Extract user_id from request for session association
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
         
         start_time = time.time()
         
@@ -518,7 +536,7 @@ async def clean_from_session(ctx: Context, req: CleanFromSessionRequest) -> Sess
         
         execution_time = time.time() - start_time
         
-        # Create session using centralized service
+        # Create session using centralized service with user association
         session_id = await session_service.create_session(
             agent_instance=cleaning_agent,
             agent_type="cleaning",
@@ -528,8 +546,10 @@ async def clean_from_session(ctx: Context, req: CleanFromSessionRequest) -> Sess
                 "user_instructions": req.user_instructions,
                 "advanced_options": req.advanced_options,
                 "original_shape": list(df.shape),
-                "execution_time": execution_time
-            }
+                "execution_time": execution_time,
+                "authenticated_user": user_id is not None
+            },
+            user_id=user_id
         )
         
         return SessionResponse(
@@ -558,7 +578,11 @@ class SessionRequest(Model):
 async def get_cleaned_data(ctx: Context, req: SessionRequest) -> DataResponse:
     """Get cleaned dataset from session"""
     try:
-        session = await session_service.get_session(req.session_id)
+        # Extract user_id from request for session ownership validation
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
+        session = await session_service.get_session_with_auth(req.session_id, user_id)
         if not session:
             return DataResponse(
                 success=False,
@@ -615,7 +639,11 @@ async def get_cleaned_data(ctx: Context, req: SessionRequest) -> DataResponse:
 async def get_original_data(ctx: Context, req: SessionRequest) -> DataResponse:
     """Get original dataset from session"""
     try:
-        session = await session_service.get_session(req.session_id)
+        # Extract user_id from request for session ownership validation
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
+        session = await session_service.get_session_with_auth(req.session_id, user_id)
         if not session:
             return DataResponse(
                 success=False,
@@ -652,7 +680,11 @@ async def get_original_data(ctx: Context, req: SessionRequest) -> DataResponse:
 async def get_cleaning_function(ctx: Context, req: SessionRequest) -> CodeResponse:
     """Get generated Python cleaning function from session"""
     try:
-        session = await session_service.get_session(req.session_id)
+        # Extract user_id from request for session ownership validation
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
+        session = await session_service.get_session_with_auth(req.session_id, user_id)
         if not session:
             return CodeResponse(
                 success=False,
@@ -688,7 +720,11 @@ async def get_cleaning_function(ctx: Context, req: SessionRequest) -> CodeRespon
 async def get_cleaning_steps(ctx: Context, req: SessionRequest) -> GenericResponse:
     """Get recommended cleaning steps from session"""
     try:
-        session = await session_service.get_session(req.session_id)
+        # Extract user_id from request for session ownership validation
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
+        session = await session_service.get_session_with_auth(req.session_id, user_id)
         if not session:
             return GenericResponse(
                 success=False,
@@ -716,7 +752,11 @@ async def get_cleaning_steps(ctx: Context, req: SessionRequest) -> GenericRespon
 async def get_workflow_summary(ctx: Context, session_id: str) -> GenericResponse:
     """Get workflow summary from session"""
     try:
-        session = await session_service.get_session(session_id)
+        # Extract user_id from request for session ownership validation
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
+        session = await session_service.get_session_with_auth(session_id, user_id)
         if not session:
             return GenericResponse(
                 success=False,
@@ -744,7 +784,11 @@ async def get_workflow_summary(ctx: Context, session_id: str) -> GenericResponse
 async def get_logs(ctx: Context, req: SessionRequest) -> GenericResponse:
     """Get execution logs from session"""
     try:
-        session = await session_service.get_session(req.session_id)
+        # Extract user_id from request for session ownership validation
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
+        session = await session_service.get_session_with_auth(req.session_id, user_id)
         if not session:
             return GenericResponse(
                 success=False,
@@ -772,7 +816,11 @@ async def get_logs(ctx: Context, req: SessionRequest) -> GenericResponse:
 async def get_full_response(ctx: Context, session_id: str) -> GenericResponse:
     """Get complete agent response from session"""
     try:
-        session = await session_service.get_session(session_id)
+        # Extract user_id from request for session ownership validation
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
+        session = await session_service.get_session_with_auth(session_id, user_id)
         if not session:
             return GenericResponse(
                 success=False,

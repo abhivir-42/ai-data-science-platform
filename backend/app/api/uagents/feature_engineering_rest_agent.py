@@ -23,6 +23,7 @@ from typing import Optional, Dict, Any, List
 from dotenv import load_dotenv
 import pandas as pd
 import numpy as np
+from fastapi import Request
 
 def _ensure_project_root_on_path():
     """Add project root and backend to sys.path for imports"""
@@ -194,6 +195,10 @@ async def engineer_features(ctx: Context, req: EngineerFeaturesRequest) -> Sessi
         # Ensure database is initialized
         await ensure_database_initialized()
         
+        # Extract user_id from request for session association
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
         start_time = time.time()
         
         # Create agent instance
@@ -220,7 +225,7 @@ async def engineer_features(ctx: Context, req: EngineerFeaturesRequest) -> Sessi
         
         execution_time = time.time() - start_time
         
-        # Create session
+        # Create session with user association
         session_id = await session_service.create_session(
             agent_instance=fe_agent,
             agent_type="engineering",
@@ -229,8 +234,10 @@ async def engineer_features(ctx: Context, req: EngineerFeaturesRequest) -> Sessi
                 "target_variable": req.target_variable,
                 "user_instructions": req.user_instructions,
                 "original_shape": list(df.shape),
-                "execution_time": execution_time
-            }
+                "execution_time": execution_time,
+                "authenticated_user": user_id is not None
+            },
+            user_id=user_id
         )
         
         return SessionResponse(
@@ -254,6 +261,10 @@ async def engineer_features_csv(ctx: Context, req: EngineerFeaturesCsvRequest) -
     try:
         # Ensure database is initialized
         await ensure_database_initialized()
+        
+        # Extract user_id from request for session association
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
         
         start_time = time.time()
         
@@ -291,7 +302,7 @@ async def engineer_features_csv(ctx: Context, req: EngineerFeaturesCsvRequest) -
         
         execution_time = time.time() - start_time
         
-        # Create session
+        # Create session with user association
         print(f"[DEBUG] Creating session for feature engineering...")
         session_id = await session_service.create_session(
             agent_instance=fe_agent,
@@ -302,13 +313,15 @@ async def engineer_features_csv(ctx: Context, req: EngineerFeaturesCsvRequest) -
                 "target_variable": req.target_variable,
                 "user_instructions": req.user_instructions,
                 "original_shape": list(df.shape),
-                "execution_time": execution_time
-            }
+                "execution_time": execution_time,
+                "authenticated_user": user_id is not None
+            },
+            user_id=user_id
         )
         print(f"[DEBUG] Session created: {session_id}")
         
-        # Debug: Test immediate retrieval
-        test_session = await session_service.get_session(session_id)
+        # Debug: Test immediate retrieval with user validation
+        test_session = await session_service.get_session(session_id, user_id)
         print(f"[DEBUG] Immediate session test: {'Found' if test_session else 'Not found'}")
         if test_session:
             print(f"[DEBUG] Session agent type: {type(test_session['agent'])}")
@@ -367,8 +380,12 @@ async def delete_session(ctx: Context, req: DeleteSessionRequest) -> GenericResp
 async def get_session_data_post(ctx: Context, req: SessionRequest) -> DataResponse:
     """Get engineered dataset from session (POST version for frontend compatibility)"""
     try:
+        # Extract user_id from request for session ownership validation
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
         print(f"[DEBUG] POST: Getting engineered data for session {req.session_id}")
-        session = await session_service.get_session(req.session_id)
+        session = await session_service.get_session_with_auth(req.session_id, user_id)
         if not session:
             return DataResponse(
                 success=False,
@@ -425,8 +442,12 @@ async def get_session_data_post(ctx: Context, req: SessionRequest) -> DataRespon
 async def get_engineering_function_post(ctx: Context, req: SessionRequest) -> CodeResponse:
     """Get engineering function from session (POST version)"""
     try:
+        # Extract user_id from request for session ownership validation
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
         print(f"[DEBUG] POST: Getting engineering function for session {req.session_id}")
-        session = await session_service.get_session(req.session_id)
+        session = await session_service.get_session_with_auth(req.session_id, user_id)
         if not session:
             return CodeResponse(
                 success=False,
@@ -464,8 +485,12 @@ async def get_engineering_function_post(ctx: Context, req: SessionRequest) -> Co
 async def get_engineering_steps_post(ctx: Context, req: SessionRequest) -> GenericResponse:
     """Get engineering recommendations from session (POST version)"""
     try:
+        # Extract user_id from request for session ownership validation
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
         print(f"[DEBUG] POST: Getting engineering steps for session {req.session_id}")
-        session = await session_service.get_session(req.session_id)
+        session = await session_service.get_session_with_auth(req.session_id, user_id)
         if not session:
             return GenericResponse(
                 success=False,
@@ -502,8 +527,12 @@ async def get_engineering_steps_post(ctx: Context, req: SessionRequest) -> Gener
 async def get_logs_post(ctx: Context, req: SessionRequest) -> GenericResponse:
     """Get execution logs from session (POST version)"""
     try:
+        # Extract user_id from request for session ownership validation
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
         print(f"[DEBUG] POST: Getting logs for session {req.session_id}")
-        session = await session_service.get_session(req.session_id)
+        session = await session_service.get_session_with_auth(req.session_id, user_id)
         if not session:
             return GenericResponse(
                 success=False,
@@ -533,8 +562,12 @@ async def get_logs_post(ctx: Context, req: SessionRequest) -> GenericResponse:
 async def get_workflow_summary_post(ctx: Context, req: SessionRequest) -> GenericResponse:
     """Get workflow summary from session (POST version)"""
     try:
+        # Extract user_id from request for session ownership validation
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
         print(f"[DEBUG] POST: Getting workflow summary for session {req.session_id}")
-        session = await session_service.get_session(req.session_id)
+        session = await session_service.get_session_with_auth(req.session_id, user_id)
         if not session:
             return GenericResponse(
                 success=False,
@@ -573,8 +606,12 @@ async def get_workflow_summary_post(ctx: Context, req: SessionRequest) -> Generi
 async def get_original_data_post(ctx: Context, req: SessionRequest) -> DataResponse:
     """Get original dataset from session (POST version)"""
     try:
+        # Extract user_id from request for session ownership validation
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
         print(f"[DEBUG] POST: Getting original data for session {req.session_id}")
-        session = await session_service.get_session(req.session_id)
+        session = await session_service.get_session_with_auth(req.session_id, user_id)
         if not session:
             return DataResponse(
                 success=False,

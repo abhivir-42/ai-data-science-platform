@@ -22,6 +22,7 @@ from typing import Optional, Dict, Any, List
 from dotenv import load_dotenv
 import pandas as pd
 import numpy as np
+from fastapi import Request
 
 def _ensure_project_root_on_path():
     """Add project root and backend to sys.path for imports"""
@@ -241,7 +242,10 @@ async def predict_single(ctx: Context, req: PredictSingleRequest) -> SessionResp
     """Make single prediction and create session"""
     try:
         # Ensure database is initialized
-        await ensure_database_initialized()
+        await ensure_database_initialized()        
+        # Extract user_id from request for session association
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
         
         start_time = time.time()
         
@@ -270,8 +274,10 @@ async def predict_single(ctx: Context, req: PredictSingleRequest) -> SessionResp
                 "model_session_id": req.model_session_id,
                 "model_path": req.model_path,
                 "execution_time": execution_time,
+                "authenticated_user": user_id is not None,
                 "prediction_result": prediction_result
-            }
+            },
+            user_id=user_id
         )
         
         return SessionResponse(
@@ -294,7 +300,10 @@ async def predict_batch(ctx: Context, req: PredictBatchRequest) -> SessionRespon
     """Make batch predictions and create session"""
     try:
         # Ensure database is initialized
-        await ensure_database_initialized()
+        await ensure_database_initialized()        
+        # Extract user_id from request for session association
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
         
         start_time = time.time()
         
@@ -323,8 +332,10 @@ async def predict_batch(ctx: Context, req: PredictBatchRequest) -> SessionRespon
                 "model_session_id": req.model_session_id,
                 "model_path": req.model_path,
                 "execution_time": execution_time,
+                "authenticated_user": user_id is not None,
                 "batch_results": batch_results
-            }
+            },
+            user_id=user_id
         )
         
         return SessionResponse(
@@ -373,8 +384,10 @@ async def analyze_model(ctx: Context, req: AnalyzeModelRequest) -> SessionRespon
                 "model_session_id": req.model_session_id,
                 "model_path": req.model_path,
                 "execution_time": execution_time,
+                "authenticated_user": user_id is not None,
                 "analysis_result": analysis_result
-            }
+            },
+            user_id=user_id
         )
         
         return SessionResponse(
@@ -415,8 +428,10 @@ async def load_model(ctx: Context, req: LoadModelRequest) -> SessionResponse:
                 "model_path": req.model_path,
                 "model_type": req.model_type,
                 "execution_time": execution_time,
+                "authenticated_user": user_id is not None,
                 "load_result": load_result
-            }
+            },
+            user_id=user_id
         )
         
         return SessionResponse(
@@ -442,7 +457,11 @@ async def load_model(ctx: Context, req: LoadModelRequest) -> SessionResponse:
 async def get_prediction_results(ctx: Context, session_id: str) -> PredictionResponse:
     """Get prediction results from session"""
     try:
-        session = await session_service.get_session(session_id)
+        # Extract user_id from request for session ownership validation
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
+        session = await session_service.get_session_with_auth(session_id, user_id)
         if not session:
             return PredictionResponse(
                 success=False,
@@ -498,7 +517,11 @@ async def get_prediction_results(ctx: Context, session_id: str) -> PredictionRes
 async def get_batch_results(ctx: Context, session_id: str) -> BatchPredictionResponse:
     """Get batch prediction results from session"""
     try:
-        session = await session_service.get_session(session_id)
+        # Extract user_id from request for session ownership validation
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
+        session = await session_service.get_session_with_auth(session_id, user_id)
         if not session:
             return BatchPredictionResponse(
                 success=False,
@@ -556,7 +579,11 @@ async def get_batch_results(ctx: Context, session_id: str) -> BatchPredictionRes
 async def get_model_analysis(ctx: Context, session_id: str) -> ModelAnalysisResponse:
     """Get model analysis results from session"""
     try:
-        session = await session_service.get_session(session_id)
+        # Extract user_id from request for session ownership validation
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
+        session = await session_service.get_session_with_auth(session_id, user_id)
         if not session:
             return ModelAnalysisResponse(
                 success=False,
@@ -625,7 +652,11 @@ async def health_check(ctx: Context) -> HealthResponse:
 async def get_model_analysis_post(ctx: Context, req: SessionRequest) -> ModelAnalysisResponse:
     """Get model analysis from session (POST version)"""
     try:
-        session = await session_service.get_session(req.session_id)
+        # Extract user_id from request for session ownership validation
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
+        session = await session_service.get_session_with_auth(req.session_id, user_id)
         if not session:
             return ModelAnalysisResponse(
                 success=False,
@@ -659,7 +690,11 @@ async def get_model_analysis_post(ctx: Context, req: SessionRequest) -> ModelAna
 async def get_prediction_results_post(ctx: Context, req: SessionRequest) -> DataResponse:
     """Get prediction results from session (POST version)"""
     try:
-        session = await session_service.get_session(req.session_id)
+        # Extract user_id from request for session ownership validation
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
+        session = await session_service.get_session_with_auth(req.session_id, user_id)
         if not session:
             return DataResponse(
                 success=False,
@@ -697,7 +732,11 @@ async def get_prediction_results_post(ctx: Context, req: SessionRequest) -> Data
 async def get_logs_post(ctx: Context, req: SessionRequest) -> GenericResponse:
     """Get prediction execution logs from session (POST version)"""
     try:
-        session = await session_service.get_session(req.session_id)
+        # Extract user_id from request for session ownership validation
+        from app.core.auth_middleware import extract_user_id_from_request
+        user_id = extract_user_id_from_request(ctx)
+        
+        session = await session_service.get_session_with_auth(req.session_id, user_id)
         if not session:
             return GenericResponse(
                 success=False,
