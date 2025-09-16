@@ -2,7 +2,8 @@
 Simple authentication API endpoints for prototype.
 Handles user registration, login, and logout.
 """
-from fastapi import APIRouter, HTTPException, Depends, Response
+from typing import Optional
+from fastapi import APIRouter, HTTPException, Depends, Response, Request, Cookie, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from app.services.simple_user_service import SimpleUserService
@@ -14,7 +15,10 @@ router = APIRouter()
 
 # Initialize services
 user_service = SimpleUserService()
-session_manager = SimpleSessionManager()
+
+# Import shared session manager to ensure consistency with auth middleware
+from app.core.auth_middleware import _shared_session_manager
+session_manager = _shared_session_manager
 
 # Pydantic models for request/response
 class RegisterRequest(BaseModel):
@@ -115,17 +119,26 @@ async def logout_user(session_id: str = None, response: Response = None):
         raise HTTPException(status_code=500, detail=f"Logout failed: {str(e)}")
 
 @router.get("/me")
-async def get_current_user(session_id: str = None):
-    """Get current user info (for testing)"""
-    if not session_id:
-        raise HTTPException(status_code=401, detail="No session provided")
-
-    user_id = session_manager.get_user_from_session(session_id)
+async def get_current_user(
+    request: Request, 
+    session_id: Optional[str] = Cookie(None),
+    authorization: Optional[str] = Header(None)
+):
+    """Get current user info - supports multiple authentication methods"""
+    from app.core.auth_middleware import auth_middleware
+    
+    # Try to get user_id from various methods
+    user_id = auth_middleware.get_user_from_request(request, session_id, authorization)
+    
     if not user_id:
-        raise HTTPException(status_code=401, detail="Invalid or expired session")
+        raise HTTPException(
+            status_code=401, 
+            detail="Authentication required. Please login first."
+        )
 
     return {
         "success": True,
         "user_id": user_id,
-        "session_valid": True
+        "session_valid": True,
+        "authentication_method": "session_verified"
     }
