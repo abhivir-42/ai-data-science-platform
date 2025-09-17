@@ -58,8 +58,9 @@ class WorkflowExecution:
 class WorkflowExecutionService:
     """Service for executing multi-agent workflows with database persistence"""
     
-    def __init__(self):
-        self.uagent_client = UAgentClient()
+    def __init__(self, user_id: Optional[str] = None):
+        self.user_id = user_id
+        self.uagent_client = UAgentClient(user_id=user_id)
         # Note: Removed in-memory executions dict - now using database
     
     async def execute_workflow(
@@ -120,6 +121,81 @@ class WorkflowExecutionService:
         
         logger.info(f"Starting workflow execution: {workflow_name} (ID: {execution_id})")
         
+        # Execute workflow in background
+        asyncio.create_task(self._execute_workflow_background(execution))
+        
+        return execution
+    
+    async def start_workflow_async(
+        self,
+        workflow_name: str,
+        steps: List[Dict[str, Any]],
+        initial_data: Dict[str, Any] = None
+    ) -> WorkflowExecution:
+        """Start a workflow execution asynchronously and return immediately"""
+        execution = await self._create_workflow_execution(workflow_name, steps, initial_data)
+        
+        # Execute workflow in background
+        asyncio.create_task(self._execute_workflow_background(execution))
+        
+        return execution
+    
+    async def _create_workflow_execution(
+        self,
+        workflow_name: str,
+        steps: List[Dict[str, Any]],
+        initial_data: Dict[str, Any] = None
+    ) -> WorkflowExecution:
+        """Create a workflow execution record"""
+        if initial_data is None:
+            initial_data = {}
+            
+        execution_id = str(uuid.uuid4())
+        
+        # Convert steps to WorkflowStep objects
+        workflow_steps = []
+        for step_data in steps:
+            step = WorkflowStep(
+                id=str(uuid.uuid4()),
+                agent_type=step_data['agent_type'],
+                parameters=step_data.get('parameters', {}),
+                status=WorkflowStatus.PENDING
+            )
+            workflow_steps.append(step)
+        
+        # Create execution record in database
+        async with database_manager.async_session_maker() as db_session:
+            execution_model = WorkflowExecutionModel(
+                id=execution_id,
+                name=workflow_name,
+                status=WorkflowStatus.PENDING,
+                steps=[asdict(step) for step in workflow_steps],
+                current_step_index=0,
+                total_execution_time=0.0,
+                results=initial_data
+            )
+            
+            db_session.add(execution_model)
+            await db_session.commit()
+        
+        # Create WorkflowExecution object
+        execution = WorkflowExecution(
+            id=execution_model.id,
+            name=execution_model.name,
+            steps=workflow_steps,
+            status=WorkflowStatus(execution_model.status),
+            created_at=execution_model.created_at.timestamp() if execution_model.created_at else time.time(),
+            started_at=None,
+            completed_at=None,
+            total_execution_time=0.0,
+            current_step_index=0,
+            results=initial_data
+        )
+        
+        return execution
+    
+    async def _execute_workflow_background(self, execution: WorkflowExecution):
+        """Execute workflow in the background"""
         try:
             execution.status = WorkflowStatus.RUNNING
             execution.started_at = time.time()
@@ -128,7 +204,7 @@ class WorkflowExecutionService:
             async with database_manager.async_session_maker() as db_session:
                 await db_session.execute(
                     update(WorkflowExecutionModel)
-                    .where(WorkflowExecutionModel.id == execution_id)
+                    .where(WorkflowExecutionModel.id == execution.id)
                     .values(
                         status=WorkflowStatus.RUNNING,
                         started_at=datetime.utcfromtimestamp(execution.started_at)
@@ -137,7 +213,7 @@ class WorkflowExecutionService:
                 await db_session.commit()
             
             # Execute each step in sequence
-            current_data = initial_data
+            current_data = execution.results
             
             for i, step in enumerate(execution.steps):
                 execution.current_step_index = i
@@ -152,7 +228,7 @@ class WorkflowExecutionService:
                     steps_data = [asdict(s) for s in execution.steps]
                     await db_session.execute(
                         update(WorkflowExecutionModel)
-                        .where(WorkflowExecutionModel.id == execution_id)
+                        .where(WorkflowExecutionModel.id == execution.id)
                         .values(
                             current_step_index=i,
                             steps=steps_data
@@ -175,7 +251,7 @@ class WorkflowExecutionService:
                         steps_data = [asdict(s) for s in execution.steps]
                         await db_session.execute(
                             update(WorkflowExecutionModel)
-                            .where(WorkflowExecutionModel.id == execution_id)
+                            .where(WorkflowExecutionModel.id == execution.id)
                             .values(steps=steps_data)
                         )
                         await db_session.commit()
@@ -202,7 +278,7 @@ class WorkflowExecutionService:
                         steps_data = [asdict(s) for s in execution.steps]
                         await db_session.execute(
                             update(WorkflowExecutionModel)
-                            .where(WorkflowExecutionModel.id == execution_id)
+                            .where(WorkflowExecutionModel.id == execution.id)
                             .values(
                                 status=WorkflowStatus.FAILED,
                                 completed_at=datetime.utcfromtimestamp(execution.completed_at),
@@ -226,7 +302,7 @@ class WorkflowExecutionService:
             async with database_manager.async_session_maker() as db_session:
                 await db_session.execute(
                     update(WorkflowExecutionModel)
-                    .where(WorkflowExecutionModel.id == execution_id)
+                    .where(WorkflowExecutionModel.id == execution.id)
                     .values(
                         status=WorkflowStatus.COMPLETED,
                         completed_at=datetime.utcfromtimestamp(execution.completed_at),
@@ -236,7 +312,7 @@ class WorkflowExecutionService:
                 )
                 await db_session.commit()
             
-            logger.info(f"Workflow {workflow_name} completed successfully in {execution.total_execution_time:.2f}s")
+            logger.info(f"Workflow {execution.name} completed successfully in {execution.total_execution_time:.2f}s")
             
         except Exception as e:
             execution.status = WorkflowStatus.FAILED
@@ -248,7 +324,7 @@ class WorkflowExecutionService:
             async with database_manager.async_session_maker() as db_session:
                 await db_session.execute(
                     update(WorkflowExecutionModel)
-                    .where(WorkflowExecutionModel.id == execution_id)
+                    .where(WorkflowExecutionModel.id == execution.id)
                     .values(
                         status=WorkflowStatus.FAILED,
                         completed_at=datetime.utcfromtimestamp(execution.completed_at),
@@ -257,7 +333,7 @@ class WorkflowExecutionService:
                 )
                 await db_session.commit()
             
-            logger.error(f"Workflow {workflow_name} failed: {e}")
+            logger.error(f"Workflow {execution.name} failed: {e}")
         
         return execution
     
@@ -366,15 +442,15 @@ class WorkflowExecutionService:
         
         # Try to get chart data
         try:
-            chart_response = await self.uagent_client._request('visualization', f'/session/{session_id}/chart', {})
-            chart_data = chart_response if chart_response.get('figure') else None
+            chart_response = await self.uagent_client._request('visualization', f'/session/{session_id}/plotly-graph', None)
+            chart_data = chart_response if chart_response.get('plotly_chart') else None
         except Exception as e:
             logger.warning(f"Could not retrieve chart data: {e}")
             chart_data = None
         
         # Try to get visualization code
         try:
-            code_response = await self.uagent_client._request('visualization', f'/session/{session_id}/code', {})
+            code_response = await self.uagent_client._request('visualization', f'/session/{session_id}/visualization-function', None)
             viz_code = code_response if code_response.get('generated_code') else None
         except Exception as e:
             logger.warning(f"Could not retrieve visualization code: {e}")
@@ -388,7 +464,7 @@ class WorkflowExecutionService:
             'chart': {
                 'success': True,
                 'message': 'Chart retrieved successfully',
-                'plotly_chart': chart_data.get('figure') if chart_data else None,
+                'plotly_chart': chart_data.get('plotly_chart') if chart_data else None,
                 'chart_type': chart_data.get('chart_type') if chart_data else None,
                 'error': None
             },

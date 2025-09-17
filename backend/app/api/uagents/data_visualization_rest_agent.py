@@ -470,12 +470,14 @@ async def get_plotly_graph(ctx: Context, session_id: str) -> ChartResponse:
         from app.core.auth_middleware import extract_user_id_from_request
         user_id = extract_user_id_from_request(ctx)
         
-        session = await session_service.get_session_with_auth(session_id, user_id)
+        print(f"[DEBUG] Looking for session {session_id} with user_id {user_id}")
+        session = await session_service.get_session(session_id, user_id)
+        print(f"[DEBUG] Session result: {session is not None}")
         if not session:
             return ChartResponse(
                 success=False,
                 message="Session not found",
-                error=f"Session {session_id} not found or expired"
+                error=f"Session {session_id} not found or expired. User ID: {user_id}"
             )
         
         viz_agent = session["agent"]
@@ -531,7 +533,7 @@ async def get_visualization_function(ctx: Context, session_id: str) -> CodeRespo
         from app.core.auth_middleware import extract_user_id_from_request
         user_id = extract_user_id_from_request(ctx)
         
-        session = await session_service.get_session_with_auth(session_id, user_id)
+        session = await session_service.get_session(session_id, user_id)
         if not session:
             return CodeResponse(
                 success=False,

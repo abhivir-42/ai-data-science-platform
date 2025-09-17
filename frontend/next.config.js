@@ -24,6 +24,10 @@ const nextConfig = {
       },
     ]
   },
+  // Increase timeout for long-running requests
+  experimental: {
+    proxyTimeout: 300000, // 5 minutes
+  },
 }
 
 module.exports = nextConfig

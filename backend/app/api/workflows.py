@@ -69,6 +69,7 @@ async def execute_workflow(
         ]
         
         # Execute workflow in background for long-running operations
+        # TODO: Extract user_id from request context when authentication is implemented
         execution = await workflow_execution_service.execute_workflow(
             workflow_name=request.name,
             steps=workflow_steps,
@@ -170,8 +171,9 @@ async def execute_quick_analysis(
             }
         ]
         
-        # Execute the workflow
-        execution = await workflow_execution_service.execute_workflow(
+        # Execute the workflow asynchronously
+        # TODO: Extract user_id from request context when authentication is implemented
+        execution = await workflow_execution_service.start_workflow_async(
             workflow_name=f"Quick Analysis - {file.filename}",
             steps=workflow_steps,
             initial_data={}
@@ -180,7 +182,7 @@ async def execute_quick_analysis(
         return WorkflowExecutionResponse(
             success=True,
             workflow_id=execution.id,
-            message=f"Quick Analysis workflow for '{file.filename}' completed",
+            message=f"Quick Analysis workflow for '{file.filename}' started",
             status=execution.status.value if hasattr(execution.status, 'value') else str(execution.status)
         )
         

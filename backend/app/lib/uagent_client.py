@@ -19,8 +19,9 @@ from loguru import logger
 class UAgentClient:
     """Backend client for communicating with uAgent REST endpoints"""
     
-    def __init__(self, host: str = "127.0.0.1"):
+    def __init__(self, host: str = "127.0.0.1", user_id: Optional[str] = None):
         self.host = host
+        self.user_id = user_id
         self.agent_ports = {
             'loading': 8005,
             'cleaning': 8004,
@@ -39,6 +40,10 @@ class UAgentClient:
         url = f"{self.base_urls[agent_type]}{endpoint}"
         
         timeout = aiohttp.ClientTimeout(total=300)  # 5 minutes for long operations
+        
+        # Add user_id to data if available
+        if data is not None and self.user_id is not None:
+            data['user_id'] = self.user_id
         
         try:
             async with aiohttp.ClientSession(timeout=timeout) as session:
