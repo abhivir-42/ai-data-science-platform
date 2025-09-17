@@ -459,14 +459,21 @@ class WorkflowExecutionService:
                 
                 # Extract chart data
                 chart_data = None
+                logger.info(f"Response data keys: {list(response_data.keys()) if response_data else 'None'}")
                 if response_data and 'plotly_graph' in response_data:
                     plotly_graph = response_data['plotly_graph']
+                    logger.info(f"Plotly graph type: {type(plotly_graph)}, not None: {plotly_graph is not None}")
                     if plotly_graph:
                         chart_data = {
                             'success': True,
                             'plotly_chart': plotly_graph,
                             'chart_type': self._extract_chart_type(plotly_graph)
                         }
+                        logger.info(f"Chart data created successfully")
+                    else:
+                        logger.warning("Plotly graph is None or falsy")
+                else:
+                    logger.warning(f"No plotly_graph in response data. Available keys: {list(response_data.keys()) if response_data else 'None'}")
                 
                 # Extract visualization code  
                 viz_code = None

@@ -466,13 +466,14 @@ async def create_chart_from_session(ctx: Context, req: CreateChartFromSessionReq
 async def get_plotly_graph(ctx: Context, session_id: str) -> ChartResponse:
     """Get generated Plotly chart from session"""
     try:
+        print(f"[DEBUG] GET plotly-graph called for session: {session_id}")
         # Extract user_id from request for session ownership validation
         from app.core.auth_middleware import extract_user_id_from_request
         user_id = extract_user_id_from_request(ctx)
+        print(f"[DEBUG] Extracted user_id: {user_id}")
         
-        print(f"[DEBUG] Looking for session {session_id} with user_id {user_id}")
         session = await session_service.get_session(session_id, user_id)
-        print(f"[DEBUG] Session result: {session is not None}")
+        print(f"[DEBUG] Session retrieved: {session is not None}")
         if not session:
             return ChartResponse(
                 success=False,
@@ -491,9 +492,8 @@ async def get_plotly_graph(ctx: Context, session_id: str) -> ChartResponse:
                 error=f"Chart generation may have failed. Available keys: {list(response_data.keys()) if response_data else 'None'}"
             )
         
-        # Get chart data directly from response (bypass problematic get_plotly_graph method)
+        # Get chart data directly from response
         plotly_graph = response_data['plotly_graph']
-        print(f"[DEBUG] Direct chart access: {type(plotly_graph)} - {plotly_graph is not None}")
         
         if not plotly_graph:
             return ChartResponse(
