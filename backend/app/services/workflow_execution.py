@@ -461,21 +461,22 @@ class WorkflowExecutionService:
                 
                 # Extract chart data
                 chart_data = None
-                logger.info(f"Response data keys: {list(response_data.keys()) if response_data else 'None'}")
+                logger.info(f"[CHART DEBUG] Response data keys: {list(response_data.keys()) if response_data else 'None'}")
                 if response_data and 'plotly_graph' in response_data:
                     plotly_graph = response_data['plotly_graph']
-                    logger.info(f"Plotly graph type: {type(plotly_graph)}, not None: {plotly_graph is not None}")
-                    if plotly_graph:
-                        chart_data = {
-                            'success': True,
-                            'plotly_chart': plotly_graph,
-                            'chart_type': self._extract_chart_type(plotly_graph)
-                        }
-                        logger.info(f"Chart data created successfully")
-                    else:
-                        logger.warning("Plotly graph is None or falsy")
+                    logger.info(f"[CHART DEBUG] Plotly graph type: {type(plotly_graph)}, not None: {plotly_graph is not None}")
+                    logger.info(f"[CHART DEBUG] bool(plotly_graph): {bool(plotly_graph)}")
+                    
+                    # Force create chart data regardless
+                    chart_data = {
+                        'success': True,
+                        'plotly_chart': plotly_graph,
+                        'chart_type': self._extract_chart_type(plotly_graph)
+                    }
+                    logger.info(f"[CHART DEBUG] Chart data FORCE created: {chart_data is not None}")
+                    logger.info(f"[CHART DEBUG] Chart data plotly_chart is None: {chart_data['plotly_chart'] is None}")
                 else:
-                    logger.warning(f"No plotly_graph in response data. Available keys: {list(response_data.keys()) if response_data else 'None'}")
+                    logger.warning(f"[CHART DEBUG] No plotly_graph in response data. Available keys: {list(response_data.keys()) if response_data else 'None'}")
                 
                 # Extract visualization code  
                 viz_code = None
@@ -492,9 +493,16 @@ class WorkflowExecutionService:
                 chart_data = None
                 viz_code = None
         except Exception as e:
-            logger.warning(f"Could not retrieve chart data from session: {e}")
+            logger.error(f"EXCEPTION while retrieving chart data from session: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             chart_data = None
             viz_code = None
+        
+        logger.info(f"[CHART DEBUG] About to return - chart_data is None: {chart_data is None}")
+        if chart_data:
+            logger.info(f"[CHART DEBUG] chart_data keys: {list(chart_data.keys())}")
+            logger.info(f"[CHART DEBUG] chart_data['plotly_chart'] is None: {chart_data.get('plotly_chart') is None}")
         
         return {
             'session_id': session_id,
