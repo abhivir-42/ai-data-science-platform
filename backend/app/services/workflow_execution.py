@@ -194,6 +194,16 @@ class WorkflowExecutionService:
         
         return execution
     
+    def _extract_chart_type(self, plotly_graph: Any) -> Optional[str]:
+        """Extract chart type from plotly graph data"""
+        try:
+            if isinstance(plotly_graph, dict) and 'data' in plotly_graph:
+                if plotly_graph['data'] and len(plotly_graph['data']) > 0:
+                    return plotly_graph['data'][0].get('type', 'unknown')
+        except:
+            pass
+        return None
+    
     async def _execute_workflow_background(self, execution: WorkflowExecution):
         """Execute workflow in the background"""
         try:
@@ -440,20 +450,41 @@ class WorkflowExecutionService:
         # Get the chart data and code from the session
         session_id = response['session_id']
         
-        # Try to get chart data
+        # Get chart data directly from session (bypass broken GET endpoints)
         try:
-            chart_response = await self.uagent_client._request('visualization', f'/session/{session_id}/plotly-graph', None)
-            chart_data = chart_response if chart_response.get('plotly_chart') else None
+            session_data = await session_service.get_session(session_id)
+            if session_data and session_data.get('agent'):
+                viz_agent = session_data['agent']
+                response_data = viz_agent.get_response()
+                
+                # Extract chart data
+                chart_data = None
+                if response_data and 'plotly_graph' in response_data:
+                    plotly_graph = response_data['plotly_graph']
+                    if plotly_graph:
+                        chart_data = {
+                            'success': True,
+                            'plotly_chart': plotly_graph,
+                            'chart_type': self._extract_chart_type(plotly_graph)
+                        }
+                
+                # Extract visualization code  
+                viz_code = None
+                if response_data and 'data_visualization_function' in response_data:
+                    viz_code = {
+                        'success': True,
+                        'generated_code': response_data.get('data_visualization_function'),
+                        'code_explanation': None
+                    }
+                    
+                logger.info(f"Retrieved chart data directly from session: chart={chart_data is not None}, code={viz_code is not None}")
+            else:
+                logger.warning(f"Could not retrieve session data for {session_id}")
+                chart_data = None
+                viz_code = None
         except Exception as e:
-            logger.warning(f"Could not retrieve chart data: {e}")
+            logger.warning(f"Could not retrieve chart data from session: {e}")
             chart_data = None
-        
-        # Try to get visualization code
-        try:
-            code_response = await self.uagent_client._request('visualization', f'/session/{session_id}/visualization-function', None)
-            viz_code = code_response if code_response.get('generated_code') else None
-        except Exception as e:
-            logger.warning(f"Could not retrieve visualization code: {e}")
             viz_code = None
         
         return {
