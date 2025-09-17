@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.lib.uagent_client import UAgentClient
 from app.core.database import database_manager
 from app.models.session import WorkflowExecution as WorkflowExecutionModel, WorkflowStatus
+from app.services.session_service import SessionService
 
 
 # WorkflowStatus enum imported from models
@@ -61,6 +62,7 @@ class WorkflowExecutionService:
     def __init__(self, user_id: Optional[str] = None):
         self.user_id = user_id
         self.uagent_client = UAgentClient(user_id=user_id)
+        self.session_service = SessionService()
         # Note: Removed in-memory executions dict - now using database
     
     async def execute_workflow(
@@ -452,7 +454,7 @@ class WorkflowExecutionService:
         
         # Get chart data directly from session (bypass broken GET endpoints)
         try:
-            session_data = await session_service.get_session(session_id)
+            session_data = await self.session_service.get_session(session_id)
             if session_data and session_data.get('agent'):
                 viz_agent = session_data['agent']
                 response_data = viz_agent.get_response()
