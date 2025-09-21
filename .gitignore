@@ -223,7 +223,12 @@ htmlcov/
 # Models and artifacts
 models/
 artifacts/
-checkpoints/ 
+checkpoints/
+
+# Deployment archives
+*.tar.gz
+*.zip
+*.tar 
 
 settings.json
 .cursor/
