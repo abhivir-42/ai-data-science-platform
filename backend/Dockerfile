@@ -12,8 +12,8 @@ RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
     build-essential \
-    # Java for H2O and other ML libraries
-    openjdk-17-jdk \
+    # Java for H2O and other ML libraries - use default-jdk for better compatibility
+    default-jdk \
     # System utilities
     curl \
     wget \
@@ -25,8 +25,8 @@ RUN apt-get update && apt-get install -y \
     # Clean up apt cache to reduce image size
     && rm -rf /var/lib/apt/lists/*
 
-# Set Java environment for H2O
-ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+# Set Java environment for H2O - find the actual Java installation path
+ENV JAVA_HOME=/usr/lib/jvm/default-java
 
 # Set working directory
 WORKDIR /app

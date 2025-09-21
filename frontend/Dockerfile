@@ -9,7 +9,7 @@ RUN apk add --no-cache libc6-compat
 
 # Install dependencies first for better caching
 COPY package*.json ./
-RUN npm ci --only=production && npm cache clean --force
+RUN npm ci
 
 # Copy the application code
 COPY . .
@@ -24,5 +24,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:3000 || exit 1
 
-# Start the application
-CMD ["npm", "run", "start"]
+# Start the application in development mode for easier debugging
+CMD ["npm", "run", "dev"]
