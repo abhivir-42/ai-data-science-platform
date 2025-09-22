@@ -580,8 +580,12 @@ class SessionService:
                     method = getattr(agent_instance, method_name)
                     if callable(method):
                         try:
-                            # Try calling method with no args
-                            result = method()
+                            # Special handling for Data Loader get_artifacts method
+                            if method_name == 'get_artifacts':
+                                result = method(as_dataframe=True)
+                            else:
+                                # Try calling method with no args
+                                result = method()
                         except TypeError:
                             # Try calling with common args
                             try:
