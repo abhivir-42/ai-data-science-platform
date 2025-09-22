@@ -561,6 +561,13 @@ class SessionService:
             ('get_tool_calls', 'tool_calls'),
             ('get_internal_messages', 'internal_messages'),
             
+            # ML Training agent
+            ('get_leaderboard', 'leaderboard'),
+            ('get_best_model_id', 'best_model_id'),
+            ('get_model_path', 'model_path'),
+            ('get_h2o_train_function', 'h2o_train_function'),
+            ('get_recommended_ml_steps', 'ml_steps'),
+            
             # General agent methods
             ('response', 'response_data'),
             ('result', 'result_data'),
