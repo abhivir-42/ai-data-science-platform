@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     ALLOWED_EXTENSIONS: List[str] = Field(default=[".csv", ".xlsx", ".json", ".parquet", ".pdf"])
     
     # MLflow
-    MLFLOW_TRACKING_URI: str = "http://localhost:5000"
+    MLFLOW_TRACKING_URI: str = "http://localhost:8002"
     MLFLOW_EXPERIMENT_NAME: str = "ai_data_science_platform"
     
     # H2O AutoML
@@ -48,11 +48,11 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     
     # CORS
-    ALLOWED_ORIGINS: List[str] = Field(default=["http://localhost:3000", "http://127.0.0.1:3000"])
+    ALLOWED_ORIGINS: List[str] = Field(default=["http://localhost:8001", "http://127.0.0.1:8001", "http://35.197.223.41:8001"])
     
     # Monitoring
     ENABLE_METRICS: bool = True
-    METRICS_PORT: int = 8001
+    METRICS_PORT: int = 8010
     
     class Config:
         env_file = "../.env"

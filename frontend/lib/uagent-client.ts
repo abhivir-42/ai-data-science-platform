@@ -191,7 +191,12 @@ export interface AnalysisResponse {
 export type AgentType = 'loading' | 'cleaning' | 'visualization' | 'engineering' | 'training' | 'prediction';
 
 // Configuration for agent URLs - can be overridden via environment
-const DEFAULT_HOST = '127.0.0.1'; // Using 127.0.0.1 for reliability across environments
+const DEFAULT_HOST = typeof window !== 'undefined' 
+  ? (window.location.hostname === 'localhost' ? '127.0.0.1' : window.location.hostname)
+  : '127.0.0.1'; // Use current hostname in browser, localhost in server
+
+// Configuration logged only in browser console (avoiding hydration issues)
+// Check console for uAgent client URLs if debugging is needed
 const AGENT_PORTS: Record<AgentType, number> = {
   loading: 8005,
   cleaning: 8004, 
@@ -237,10 +242,6 @@ export class UAgentClient {
   // Generic request helper
   private async request<T>(endpoint: string, data?: unknown): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`;
-    
-    // More reliable development detection than NODE_ENV
-    const isDevelopment = typeof window !== 'undefined' && 
-      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
     try {
       const response = await fetch(url, {
@@ -254,27 +255,11 @@ export class UAgentClient {
       if (!response.ok) {
         const errorText = await response.text();
         const error = new Error(`Request failed: ${response.status} ${response.statusText}: ${errorText}`);
-        
-        // Log detailed error info in development only
-        if (isDevelopment) {
-          console.error(`[UAgentClient] Request failed:`, {
-            url,
-            status: response.status,
-            statusText: response.statusText,
-            error: errorText,
-            requestData: data
-          });
-        }
-        
         throw error;
       }
 
       return response.json();
     } catch (error) {
-      // Log network/fetch errors in development
-      if (isDevelopment) {
-        console.error(`[UAgentClient] Network error for ${url}:`, error);
-      }
       throw error;
     }
   }

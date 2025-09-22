@@ -196,7 +196,7 @@ class SessionService:
                     return None
                 
                 # Update last accessed time
-                session_record.last_accessed = datetime.utcnow()
+                session_record.last_accessed = datetime.utcnow().replace(tzinfo=None)
                 await db_session.commit()
 
                 # Check if this is a fallback session
@@ -218,9 +218,18 @@ class SessionService:
 
                 logger.debug(f"Retrieved session {session_id} (type: {session_record.agent_type})")
 
+                # Handle timezone-aware datetime properly
+                created_at_timestamp = session_record.created_at
+                if created_at_timestamp.tzinfo is not None:
+                    # Convert timezone-aware datetime to UTC timestamp
+                    created_at_timestamp = created_at_timestamp.timestamp()
+                else:
+                    # Handle timezone-naive datetime
+                    created_at_timestamp = created_at_timestamp.timestamp()
+                
                 return {
                     "agent": agent_instance,
-                    "created_at": session_record.created_at.timestamp(),
+                    "created_at": created_at_timestamp,
                     "metadata": session_record.session_metadata or {},
                     "agent_type": session_record.agent_type,
                     "session_id": session_id
@@ -300,7 +309,7 @@ class SessionService:
         try:
             async with database_manager.async_session_maker() as db_session:
                 stmt = select(AgentSession.session_id).where(
-                    AgentSession.expires_at > datetime.utcnow()
+                    AgentSession.expires_at > datetime.utcnow().replace(tzinfo=None)
                 )
                 
                 if agent_type:
@@ -326,7 +335,7 @@ class SessionService:
         try:
             async with database_manager.async_session_maker() as db_session:
                 stmt = delete(AgentSession).where(
-                    AgentSession.expires_at <= datetime.utcnow()
+                    AgentSession.expires_at <= datetime.utcnow().replace(tzinfo=None)
                 )
                 result = await db_session.execute(stmt)
                 await db_session.commit()
@@ -415,14 +424,14 @@ class SessionService:
 
                 # Active sessions
                 active_stmt = select(AgentSession.session_id).where(
-                    AgentSession.expires_at > datetime.utcnow()
+                    AgentSession.expires_at > datetime.utcnow().replace(tzinfo=None)
                 )
                 active_result = await db_session.execute(active_stmt)
                 active_count = len(active_result.fetchall())
 
                 # Sessions by type
                 type_stmt = select(AgentSession.agent_type).where(
-                    AgentSession.expires_at > datetime.utcnow()
+                    AgentSession.expires_at > datetime.utcnow().replace(tzinfo=None)
                 )
                 type_result = await db_session.execute(type_stmt)
                 types = [row[0] for row in type_result.fetchall()]
@@ -432,7 +441,7 @@ class SessionService:
 
                 # Recently created sessions (last 24 hours)
                 recent_stmt = select(AgentSession.session_id).where(
-                    AgentSession.created_at > datetime.utcnow() - timedelta(hours=24)
+                    AgentSession.created_at > datetime.utcnow().replace(tzinfo=None) - timedelta(hours=24)
                 )
                 recent_result = await db_session.execute(recent_stmt)
                 recent_count = len(recent_result.fetchall())
@@ -578,6 +587,10 @@ class SessionService:
                     
                     # Convert result to JSON-safe format
                     if result is not None:
+                        # For DataFrames, check if empty using .empty property
+                        if hasattr(result, 'empty') and hasattr(result, 'shape'):
+                            if result.empty:
+                                continue  # Skip empty DataFrames
                         safe_result = self._make_json_safe(result)
                         results[result_key] = safe_result
                         
@@ -617,7 +630,14 @@ class SessionService:
 
         if data is None:
             return None
+        # ✅ CRITICAL FIX: Handle NaN values first before type checking
+        # Only check for NaN on scalar values, not DataFrames
+        elif not isinstance(data, (pd.DataFrame, pd.Series)) and pd.isna(data):
+            return None
         elif isinstance(data, (str, int, float, bool)):
+            # ✅ Additional safety check for float NaN
+            if isinstance(data, float) and np.isnan(data):
+                return None
             return data
         elif isinstance(data, dict):
             return {k: self._make_json_safe(v) for k, v in data.items()}
@@ -643,7 +663,11 @@ class SessionService:
             elif np.issubdtype(data.dtype, np.integer):
                 return int(data)
             elif np.issubdtype(data.dtype, np.floating):
-                return float(data)
+                # ✅ CRITICAL FIX: Check for NaN before converting to float
+                # Only check for NaN on scalar values, not DataFrames
+                if isinstance(data, (pd.DataFrame, pd.Series)):
+                    return data
+                return float(data) if not np.isnan(data) else None
             elif np.issubdtype(data.dtype, np.bool_):
                 return bool(data)
         elif isinstance(data, pd.Series):
@@ -751,7 +775,8 @@ class SessionService:
                     pass
 
             # Check for pandas datetime objects with different attributes
-            if hasattr(data, '_is_naive') or hasattr(data, 'tz_localize'):
+            # Only check for datetime attributes on non-DataFrame objects
+            if not isinstance(data, (pd.DataFrame, pd.Series)) and (hasattr(data, '_is_naive') or hasattr(data, 'tz_localize')):
                 try:
                     # This is likely a pandas datetime-like object
                     return pd.Timestamp(data).isoformat()
