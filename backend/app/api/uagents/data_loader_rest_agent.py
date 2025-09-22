@@ -656,12 +656,22 @@ async def get_artifacts(ctx: Context, req: SessionRequest) -> DataResponse:
                 error="No data was loaded in this session"
             )
         
-        # If artifacts is a DataFrame, convert to JSON-safe format
+        # Convert artifacts to JSON-safe format
         if req.as_dataframe and hasattr(artifacts, 'shape'):
+            # DataFrame case
             data = dataframe_to_json_safe(artifacts)
             shape = list(artifacts.shape)
+        elif isinstance(artifacts, list):
+            # List of records case - convert to dict format
+            data = {
+                "records": [make_json_serializable(record) for record in artifacts],
+                "columns": list(artifacts[0].keys()) if artifacts and isinstance(artifacts[0], dict) else [],
+                "shape": [len(artifacts), len(artifacts[0]) if artifacts else 0]
+            }
+            shape = [len(artifacts), len(artifacts[0]) if artifacts else 0]
         else:
-            data = make_json_serializable(artifacts)
+            # Other cases - wrap in dict format
+            data = {"records": make_json_serializable(artifacts), "columns": [], "shape": [0, 0]}
             shape = None
         
         return DataResponse(

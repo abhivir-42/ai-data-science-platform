@@ -252,21 +252,30 @@ class DataLoaderToolsAgent(BaseAgent):
         if not self.response:
             return "No response available. Run invoke_agent() first."
             
-        if as_dataframe and self.response.get("data_loader_artifacts"):
+        if self.response.get("data_loader_artifacts"):
             if isinstance(self.response["data_loader_artifacts"], dict) and "records" in self.response["data_loader_artifacts"]:
-                # Fix the DataFrame conversion issue - use orient='dict' to preserve shape
-                data_dict = self.response["data_loader_artifacts"]["records"]
-                try:
-                    # Try to create DataFrame properly preserving original shape
-                    df = pd.DataFrame.from_dict(data_dict, orient='columns')
-                    return df
-                except Exception as e:
-                    print(f"Warning: Error converting to DataFrame: {e}")
-                    # Fallback to original method if there's an issue
-                    return pd.DataFrame(data_dict)
-            return pd.DataFrame(self.response["data_loader_artifacts"])
+                # Get the actual data records
+                data_records = self.response["data_loader_artifacts"]["records"]
+                
+                if as_dataframe:
+                    # Convert to DataFrame
+                    try:
+                        df = pd.DataFrame.from_dict(data_records, orient='columns')
+                        return df
+                    except Exception as e:
+                        print(f"Warning: Error converting to DataFrame: {e}")
+                        return pd.DataFrame(data_records)
+                else:
+                    # Return as list of records
+                    return data_records
+            else:
+                # Fallback for other data structures
+                if as_dataframe:
+                    return pd.DataFrame(self.response["data_loader_artifacts"])
+                else:
+                    return self.response["data_loader_artifacts"]
         else:
-            return self.response.get("data_loader_artifacts", {})
+            return [] if as_dataframe else {}
     
     def get_ai_message(self, markdown: bool = False):
         """
