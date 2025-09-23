@@ -39,8 +39,11 @@ export function CodeViewer({
   const [showCode, setShowCode] = useState(true)
   const { toast } = useToast()
 
+  // Handle null/undefined code gracefully
+  const safeCode = code || ''
+
   const handleCopy = async () => {
-    const success = await copyToClipboard(code)
+    const success = await copyToClipboard(safeCode)
     if (success) {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
@@ -66,7 +69,7 @@ export function CodeViewer({
       ? downloadFileName 
       : `${downloadFileName}.${extension}`
     
-    const blob = new Blob([code], { type: 'text/plain' })
+    const blob = new Blob([safeCode], { type: 'text/plain' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
@@ -83,7 +86,7 @@ export function CodeViewer({
     })
   }
 
-  const lines = code.split('\n')
+  const lines = safeCode.split('\n')
   const maxLineNumber = lines.length
   const lineNumberWidth = Math.max(2, String(maxLineNumber).length)
 
@@ -206,7 +209,7 @@ export function CodeViewer({
                   <code 
                     className={getLanguageClass(language)}
                   >
-                    {code}
+                    {safeCode}
                   </code>
                 </pre>
               </div>
