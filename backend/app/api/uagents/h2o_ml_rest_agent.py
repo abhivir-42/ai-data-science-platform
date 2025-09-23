@@ -254,7 +254,7 @@ class DataResponse(Model):
 class LeaderboardResponse(Model):
     success: bool
     message: str
-    leaderboard: Optional[Dict[str, Any]] = None
+    leaderboard: Optional[List[Dict[str, Any]]] = None
     best_model_id: Optional[str] = None
     error: Optional[str] = None
 
@@ -744,13 +744,18 @@ async def get_leaderboard_post(ctx: Context, req: SessionRequest) -> Leaderboard
                 error="Session does not contain an agent instance"
             )
         
-        # Use the agent's response directly (working commit approach)
-        if ml_agent.response and "leaderboard" in ml_agent.response:
+        print(f"[AIDEBUG] Agent Proxy Results Keys: {list(ml_agent._results.keys())}", flush=True)
+
+        # Try to get leaderboard using the agent's method
+        leaderboard = ml_agent.get_leaderboard()
+        best_model_id = ml_agent.get_best_model_id()
+        
+        if leaderboard is not None:
             return LeaderboardResponse(
                 success=True,
                 message="Leaderboard retrieved successfully",
-                leaderboard=ml_agent.response["leaderboard"],
-                best_model_id=ml_agent.response.get("best_model_id")
+                leaderboard=leaderboard,
+                best_model_id=best_model_id
             )
         
         return LeaderboardResponse(
@@ -769,14 +774,17 @@ async def get_leaderboard_post(ctx: Context, req: SessionRequest) -> Leaderboard
 @agent.on_rest_post("/get-training-function", SessionRequest, CodeResponse)
 async def get_training_function_post(ctx: Context, req: SessionRequest) -> CodeResponse:
     """Get training function from session (POST version)"""
-    print(f"[DEBUG] ========== get_training_function_post called with session_id: {req.session_id} ==========")
+    print(f"[DEBUG] ========== get_training_function_post called with session_id: {req.session_id} ==========", flush=True)
+    
     try:
         # Extract user_id from request for session ownership validation
         from app.core.auth_middleware import extract_user_id_from_request
         user_id = extract_user_id_from_request(ctx)
+        print(f"[DEBUG] Extracted user_id: {user_id}", flush=True)
         
         session_result = await session_service.get_session_with_auth(req.session_id, user_id)
         if not session_result:
+            print(f"[DEBUG] Session not found: {req.session_id}", flush=True)
             return CodeResponse(
                 success=False,
                 message="Session not found",
@@ -785,6 +793,7 @@ async def get_training_function_post(ctx: Context, req: SessionRequest) -> CodeR
         
         ml_agent = session_result.get("agent")
         if not ml_agent:
+            print(f"[DEBUG] No agent found in session", flush=True)
             return CodeResponse(
                 success=False,
                 message="No agent found in session",
@@ -792,19 +801,21 @@ async def get_training_function_post(ctx: Context, req: SessionRequest) -> CodeR
             )
         
         # DEBUG: Log what's in the agent response
-        print(f"[DEBUG] Agent type: {type(ml_agent)}")
-        print(f"[DEBUG] Agent response: {ml_agent.response if hasattr(ml_agent, 'response') else 'NO RESPONSE ATTRIBUTE'}")
+        print(f"[DEBUG] Agent type: {type(ml_agent)}", flush=True)
+        print(f"[DEBUG] Agent response: {ml_agent.response if hasattr(ml_agent, 'response') else 'NO RESPONSE ATTRIBUTE'}", flush=True)
         if hasattr(ml_agent, 'response') and ml_agent.response:
-            print(f"[DEBUG] Response keys: {list(ml_agent.response.keys())}")
+            print(f"[DEBUG] Response keys: {list(ml_agent.response.keys())}", flush=True)
         
         # WORKING COMMIT EXACT APPROACH: Look for "training_function" key
         if ml_agent.response and "training_function" in ml_agent.response:
+            print(f"[DEBUG] Found training_function! Returning success", flush=True)
             return CodeResponse(
                 success=True,
                 message="Training function retrieved successfully",
                 generated_code=ml_agent.response["training_function"]
             )
         
+        print(f"[DEBUG] No training_function found, returning failure", flush=True)
         return CodeResponse(
             success=False,
             message="No training function available",
@@ -812,7 +823,7 @@ async def get_training_function_post(ctx: Context, req: SessionRequest) -> CodeR
         )
         
     except Exception as e:
-        print(f"[DEBUG] Exception in get_training_function_post: {e}")
+        print(f"[DEBUG] Exception in get_training_function_post: {e}", flush=True)
         return CodeResponse(
             success=False,
             message="Failed to retrieve training function",

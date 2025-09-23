@@ -47,7 +47,7 @@ class TrainModelFromSessionRequest(BaseModel):
 class LeaderboardResponse(BaseModel):
     success: bool
     message: str
-    leaderboard: Optional[Dict[str, Any]] = None
+    leaderboard: Optional[List[Dict[str, Any]]] = None
     best_model_id: Optional[str] = None
     error: Optional[str] = None
 
@@ -134,6 +134,40 @@ async def train_model_from_session(request: TrainModelFromSessionRequest) -> Ses
         raise
     except Exception as e:
         logger.error(f"Failed to train model from session: {e}")
+        raise HTTPException(status_code=500, detail=f"Model training failed: {str(e)}")
+
+class TrainModelCsvRequest(BaseModel):
+    filename: Optional[str] = None
+    file_content: str  # Base64 encoded CSV (required)
+    target_variable: str
+    user_instructions: Optional[str] = "Train machine learning models"
+    max_runtime_secs: int = 300
+    cv_folds: int = 5
+    balance_classes: bool = True
+    exclude_algos: List[str] = []
+    max_models: int = 20
+    seed: int = 42
+    max_retries: int = 3
+
+@router.post("/train-model-csv", response_model=SessionResponse)
+async def train_model_csv(request: TrainModelCsvRequest) -> SessionResponse:
+    """Train ML model with CSV data"""
+    try:
+        logger.info(f"Training model with CSV data, target variable: {request.target_variable}")
+        
+        response = await _make_request_to_h2o_agent("/train-model-csv", request.dict())
+        
+        return SessionResponse(
+            success=response.get("success", False),
+            message=response.get("message", ""),
+            session_id=response.get("session_id", ""),
+            execution_time_seconds=response.get("execution_time_seconds"),
+            error=response.get("error")
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to train model with CSV: {e}")
         raise HTTPException(status_code=500, detail=f"Model training failed: {str(e)}")
 
 @router.post("/get-leaderboard", response_model=LeaderboardResponse)

@@ -241,3 +241,4 @@ settings.json
 pyrightconfig.json
 
 envForDocker.txt
+env.local
