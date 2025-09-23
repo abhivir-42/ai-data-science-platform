@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 
-from app.api import agents, data, jobs, health, workflows, simple_auth
+from app.api import agents, data, jobs, health, workflows, simple_auth, training
 from app.core.config import settings
 from app.core.logging import setup_logging
 
@@ -65,6 +65,7 @@ app.include_router(data.router, prefix="/api/data", tags=["data"])
 app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
 app.include_router(workflows.router, prefix="/api", tags=["workflows"])
 app.include_router(simple_auth.router, prefix="/api/auth", tags=["authentication"])
+app.include_router(training.router, prefix="/api/training", tags=["training"])
 
 
 @app.get("/")

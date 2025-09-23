@@ -744,11 +744,13 @@ async def get_leaderboard_post(ctx: Context, req: SessionRequest) -> Leaderboard
                 error="Session does not contain an agent instance"
             )
         
+        # Use the agent's response directly (working commit approach)
         if ml_agent.response and "leaderboard" in ml_agent.response:
             return LeaderboardResponse(
                 success=True,
                 message="Leaderboard retrieved successfully",
-                leaderboard=ml_agent.response["leaderboard"]
+                leaderboard=ml_agent.response["leaderboard"],
+                best_model_id=ml_agent.response.get("best_model_id")
             )
         
         return LeaderboardResponse(
@@ -767,6 +769,7 @@ async def get_leaderboard_post(ctx: Context, req: SessionRequest) -> Leaderboard
 @agent.on_rest_post("/get-training-function", SessionRequest, CodeResponse)
 async def get_training_function_post(ctx: Context, req: SessionRequest) -> CodeResponse:
     """Get training function from session (POST version)"""
+    print(f"[DEBUG] ========== get_training_function_post called with session_id: {req.session_id} ==========")
     try:
         # Extract user_id from request for session ownership validation
         from app.core.auth_middleware import extract_user_id_from_request
@@ -788,6 +791,13 @@ async def get_training_function_post(ctx: Context, req: SessionRequest) -> CodeR
                 error="Session does not contain an agent instance"
             )
         
+        # DEBUG: Log what's in the agent response
+        print(f"[DEBUG] Agent type: {type(ml_agent)}")
+        print(f"[DEBUG] Agent response: {ml_agent.response if hasattr(ml_agent, 'response') else 'NO RESPONSE ATTRIBUTE'}")
+        if hasattr(ml_agent, 'response') and ml_agent.response:
+            print(f"[DEBUG] Response keys: {list(ml_agent.response.keys())}")
+        
+        # WORKING COMMIT EXACT APPROACH: Look for "training_function" key
         if ml_agent.response and "training_function" in ml_agent.response:
             return CodeResponse(
                 success=True,
@@ -802,6 +812,7 @@ async def get_training_function_post(ctx: Context, req: SessionRequest) -> CodeR
         )
         
     except Exception as e:
+        print(f"[DEBUG] Exception in get_training_function_post: {e}")
         return CodeResponse(
             success=False,
             message="Failed to retrieve training function",
@@ -832,11 +843,13 @@ async def get_ml_steps_post(ctx: Context, req: SessionRequest) -> GenericRespons
                 error="Session does not contain an agent instance"
             )
         
-        if ml_agent.response and "ml_steps" in ml_agent.response:
+        # Use the agent's method to get ML steps
+        ml_steps = ml_agent.get_recommended_ml_steps()
+        if ml_steps:
             return GenericResponse(
                 success=True,
                 message="ML steps retrieved successfully",
-                data=ml_agent.response["ml_steps"]
+                data=ml_steps
             )
         
         return GenericResponse(
@@ -963,6 +976,7 @@ async def get_best_model_id_post(ctx: Context, req: SessionRequest) -> ModelInfo
                 error="Session does not contain an agent instance"
             )
         
+        # Use the agent's response directly (working commit approach)
         if ml_agent.response and "best_model_id" in ml_agent.response:
             return ModelInfoResponse(
                 success=True,
@@ -1007,6 +1021,7 @@ async def get_model_path_post(ctx: Context, req: SessionRequest) -> ModelInfoRes
                 error="Session does not contain an agent instance"
             )
         
+        # Use the agent's response directly (working commit approach)
         if ml_agent.response and "model_path" in ml_agent.response:
             return ModelInfoResponse(
                 success=True,
@@ -1051,11 +1066,13 @@ async def get_workflow_summary_post(ctx: Context, req: SessionRequest) -> Generi
                 error="Session does not contain an agent instance"
             )
         
-        if ml_agent.response and "workflow_summary" in ml_agent.response:
+        # Use the agent's method to get workflow summary
+        workflow_summary = ml_agent.get_workflow_summary()
+        if workflow_summary:
             return GenericResponse(
                 success=True,
                 message="Workflow summary retrieved successfully",
-                data=ml_agent.response["workflow_summary"]
+                data=workflow_summary
             )
         
         return GenericResponse(

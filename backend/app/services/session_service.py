@@ -866,6 +866,7 @@ class SessionService:
                 self._config = agent_data.get("agent_config", {})
                 self._timestamp = agent_data.get("timestamp")
                 self._reconstruction_info = agent_data.get("reconstruction_info", {})
+                self._agent_data = agent_data  # Store full agent data for fallback access
             
             # Data cleaning agent methods
             def get_data_cleaned(self):
@@ -1002,7 +1003,16 @@ class SessionService:
             # General properties
             @property
             def response(self):
-                return self._results.get("response_data") or self._results.get("response")
+                # WORKING COMMIT COMPATIBILITY: Map h2o_train_function to training_function
+                response_data = self._results.get("response_data") or self._results.get("response")
+                if response_data and isinstance(response_data, dict):
+                    # Create a copy to avoid modifying original data
+                    mapped_response = response_data.copy()
+                    # Map h2o_train_function to training_function for backward compatibility
+                    if "h2o_train_function" in mapped_response and "training_function" not in mapped_response:
+                        mapped_response["training_function"] = mapped_response["h2o_train_function"]
+                    return mapped_response
+                return response_data
             
             @property
             def result(self):
