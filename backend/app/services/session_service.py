@@ -580,9 +580,17 @@ class SessionService:
                     method = getattr(agent_instance, method_name)
                     if callable(method):
                         try:
-                            # Special handling for Data Loader get_artifacts method
+                            # Special handling for specific agent methods
                             if method_name == 'get_artifacts':
                                 result = method(as_dataframe=True)
+                            elif method_name in ['predict_single', 'predict_batch', 'analyze_model']:
+                                # ML Prediction agent methods need dummy parameters for serialization
+                                if method_name == 'predict_single':
+                                    result = method({"dummy": "data"})
+                                elif method_name == 'predict_batch':
+                                    result = method("dummy.csv")
+                                elif method_name == 'analyze_model':
+                                    result = method("What is this model?")
                             else:
                                 # Try calling method with no args
                                 result = method()
@@ -980,6 +988,16 @@ class SessionService:
             
             def get_workflow_summary(self):
                 return self._results.get("workflow_summary")
+            
+            # ML Prediction agent methods
+            def predict_single(self, input_data=None):
+                return self._results.get("prediction_results")
+            
+            def predict_batch(self, data_source=None):
+                return self._results.get("batch_results")
+            
+            def analyze_model(self, query=None):
+                return self._results.get("model_analysis")
             
             # General properties
             @property
