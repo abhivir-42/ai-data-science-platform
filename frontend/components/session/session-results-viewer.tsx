@@ -829,7 +829,163 @@ export function SessionResultsViewer({ sessionId }: SessionResultsViewerProps) {
               </div>
             )}
             
-            {!chartQuery.data?.figure && !leaderboardQuery.data?.leaderboard && effectiveSession!.agentType !== 'training' && (
+            {effectiveSession!.agentType === 'prediction' && (
+              <div className="space-y-6">
+                {/* 🎯 PREDICTION OVERVIEW CARD */}
+                <Card className="border-red-200 bg-gradient-to-br from-red-50 to-pink-50">
+                  <CardHeader>
+                    <CardTitle className="flex items-center space-x-2">
+                      <Target className="h-6 w-6 text-red-600" />
+                      <span>ML Prediction Results</span>
+                      <Badge variant="secondary" className="bg-red-100 text-red-700">
+                        {effectiveSession!.status === 'completed' ? 'Completed' : 'Processing'}
+                      </Badge>
+                    </CardTitle>
+                    <CardDescription>
+                      Machine learning predictions and model analysis
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="text-center p-4 rounded-lg bg-red-100">
+                        <div className="text-2xl font-bold text-red-600">
+                          {dataQuery.data?.data?.prediction ? '1' : '0'}
+                        </div>
+                        <div className="text-sm text-red-700 flex items-center justify-center gap-1">
+                          <Target className="h-3 w-3" />
+                          Predictions Made
+                        </div>
+                      </div>
+                      <div className="text-center p-4 rounded-lg bg-blue-100">
+                        <div className="text-2xl font-bold text-blue-600">
+                          {analysisQuery.data?.analysis ? '1' : '0'}
+                        </div>
+                        <div className="text-sm text-blue-700 flex items-center justify-center gap-1">
+                          <Brain className="h-3 w-3" />
+                          Analysis Available
+                        </div>
+                      </div>
+                      <div className="text-center p-4 rounded-lg bg-green-100">
+                        <div className="text-2xl font-bold text-green-600">
+                          {effectiveSession!.executionTimeSeconds ? `${effectiveSession!.executionTimeSeconds.toFixed(1)}s` : 'N/A'}
+                        </div>
+                        <div className="text-sm text-green-700 flex items-center justify-center gap-1">
+                          <Clock className="h-3 w-3" />
+                          Execution Time
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* 🎯 PREDICTION RESULTS */}
+                {dataQuery.data?.data && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center space-x-2">
+                        <Target className="h-5 w-5 text-red-600" />
+                        <span>Prediction Results</span>
+                      </CardTitle>
+                      <CardDescription>
+                        Model predictions and confidence scores
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-4">
+                        {dataQuery.data.data.prediction && (
+                          <div className="p-4 rounded-lg bg-red-50 border border-red-200">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <h4 className="font-semibold text-red-800">Prediction</h4>
+                                <p className="text-2xl font-bold text-red-600">
+                                  {typeof dataQuery.data.data.prediction === 'number' 
+                                    ? dataQuery.data.data.prediction.toLocaleString()
+                                    : dataQuery.data.data.prediction}
+                                </p>
+                              </div>
+                              {dataQuery.data.data.confidence && (
+                                <div className="text-right">
+                                  <h4 className="font-semibold text-red-800">Confidence</h4>
+                                  <p className="text-lg font-bold text-red-600">
+                                    {(dataQuery.data.data.confidence * 100).toFixed(1)}%
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {dataQuery.data.data.input_data && (
+                          <div className="p-4 rounded-lg bg-gray-50 border border-gray-200">
+                            <h4 className="font-semibold text-gray-800 mb-2">Input Data</h4>
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                              {Object.entries(dataQuery.data.data.input_data).map(([key, value]) => (
+                                <div key={key} className="text-sm">
+                                  <span className="font-medium text-gray-600">{key}:</span>
+                                  <span className="ml-1 text-gray-800">{String(value)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {dataQuery.data.data.model_architecture && (
+                          <div className="p-4 rounded-lg bg-blue-50 border border-blue-200">
+                            <h4 className="font-semibold text-blue-800 mb-2">Model Architecture</h4>
+                            <p className="text-sm text-blue-700">{dataQuery.data.data.model_architecture}</p>
+                          </div>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* 🧠 MODEL ANALYSIS */}
+                {analysisQuery.data?.analysis && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center space-x-2">
+                        <Brain className="h-5 w-5 text-blue-600" />
+                        <span>Model Analysis</span>
+                      </CardTitle>
+                      <CardDescription>
+                        AI-powered analysis of the model and its predictions
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-4">
+                        <div className="p-4 rounded-lg bg-blue-50 border border-blue-200">
+                          <h4 className="font-semibold text-blue-800 mb-2">Analysis</h4>
+                          <div className="text-sm text-blue-700 whitespace-pre-wrap">
+                            {analysisQuery.data.analysis}
+                          </div>
+                        </div>
+                        
+                        {analysisQuery.data.model_info && (
+                          <div className="p-4 rounded-lg bg-gray-50 border border-gray-200">
+                            <h4 className="font-semibold text-gray-800 mb-2">Model Information</h4>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              {Object.entries(analysisQuery.data.model_info).map(([key, value]) => (
+                                <div key={key} className="text-sm">
+                                  <span className="font-medium text-gray-600 capitalize">
+                                    {key.replace(/_/g, ' ')}:
+                                  </span>
+                                  <span className="ml-1 text-gray-800">
+                                    {Array.isArray(value) ? value.join(', ') : String(value)}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            )}
+            
+            {!chartQuery.data?.figure && !leaderboardQuery.data?.leaderboard && effectiveSession!.agentType !== 'training' && effectiveSession!.agentType !== 'prediction' && (
               <Card>
                 <CardContent className="flex items-center justify-center h-64">
                   <div className="text-center text-muted-foreground">
