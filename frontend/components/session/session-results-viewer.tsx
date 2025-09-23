@@ -849,7 +849,7 @@ export function SessionResultsViewer({ sessionId }: SessionResultsViewerProps) {
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div className="text-center p-4 rounded-lg bg-red-100">
                         <div className="text-2xl font-bold text-red-600">
-                          {dataQuery.data?.data?.prediction ? '1' : '0'}
+                          {(dataQuery.data?.data as any)?.prediction ? '1' : '0'}
                         </div>
                         <div className="text-sm text-red-700 flex items-center justify-center gap-1">
                           <Target className="h-3 w-3" />
@@ -892,22 +892,22 @@ export function SessionResultsViewer({ sessionId }: SessionResultsViewerProps) {
                     </CardHeader>
                     <CardContent>
                       <div className="space-y-4">
-                        {dataQuery.data.data.prediction && (
+                        {(dataQuery.data.data as any)?.prediction && (
                           <div className="p-4 rounded-lg bg-red-50 border border-red-200">
                             <div className="flex items-center justify-between">
                               <div>
                                 <h4 className="font-semibold text-red-800">Prediction</h4>
                                 <p className="text-2xl font-bold text-red-600">
-                                  {typeof dataQuery.data.data.prediction === 'number' 
-                                    ? dataQuery.data.data.prediction.toLocaleString()
-                                    : dataQuery.data.data.prediction}
+                                  {typeof (dataQuery.data.data as any).prediction === 'number' 
+                                    ? (dataQuery.data.data as any).prediction.toLocaleString()
+                                    : (dataQuery.data.data as any).prediction}
                                 </p>
                               </div>
-                              {dataQuery.data.data.confidence && (
+                              {(dataQuery.data.data as any)?.confidence && (
                                 <div className="text-right">
                                   <h4 className="font-semibold text-red-800">Confidence</h4>
                                   <p className="text-lg font-bold text-red-600">
-                                    {(dataQuery.data.data.confidence * 100).toFixed(1)}%
+                                    {((dataQuery.data.data as any).confidence * 100).toFixed(1)}%
                                   </p>
                                 </div>
                               )}
@@ -915,11 +915,11 @@ export function SessionResultsViewer({ sessionId }: SessionResultsViewerProps) {
                           </div>
                         )}
                         
-                        {dataQuery.data.data.input_data && (
+                        {(dataQuery.data.data as any)?.input_data && (
                           <div className="p-4 rounded-lg bg-gray-50 border border-gray-200">
                             <h4 className="font-semibold text-gray-800 mb-2">Input Data</h4>
                             <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                              {Object.entries(dataQuery.data.data.input_data).map(([key, value]) => (
+                              {Object.entries((dataQuery.data.data as any).input_data).map(([key, value]) => (
                                 <div key={key} className="text-sm">
                                   <span className="font-medium text-gray-600">{key}:</span>
                                   <span className="ml-1 text-gray-800">{String(value)}</span>
@@ -929,10 +929,10 @@ export function SessionResultsViewer({ sessionId }: SessionResultsViewerProps) {
                           </div>
                         )}
                         
-                        {dataQuery.data.data.model_architecture && (
+                        {(dataQuery.data.data as any)?.model_architecture && (
                           <div className="p-4 rounded-lg bg-blue-50 border border-blue-200">
                             <h4 className="font-semibold text-blue-800 mb-2">Model Architecture</h4>
-                            <p className="text-sm text-blue-700">{dataQuery.data.data.model_architecture}</p>
+                            <p className="text-sm text-blue-700">{(dataQuery.data.data as any).model_architecture}</p>
                           </div>
                         )}
                       </div>
@@ -961,11 +961,11 @@ export function SessionResultsViewer({ sessionId }: SessionResultsViewerProps) {
                           </div>
                         </div>
                         
-                        {analysisQuery.data.model_info && (
+                        {(analysisQuery.data as any)?.model_info && (
                           <div className="p-4 rounded-lg bg-gray-50 border border-gray-200">
                             <h4 className="font-semibold text-gray-800 mb-2">Model Information</h4>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              {Object.entries(analysisQuery.data.model_info).map(([key, value]) => (
+                              {Object.entries((analysisQuery.data as any).model_info).map(([key, value]) => (
                                 <div key={key} className="text-sm">
                                   <span className="font-medium text-gray-600 capitalize">
                                     {key.replace(/_/g, ' ')}:
