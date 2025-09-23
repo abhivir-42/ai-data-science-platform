@@ -444,7 +444,7 @@ async def clean_from_session(ctx: Context, req: CleanFromSessionRequest) -> Sess
         start_time = time.time()
         
         # Fetch data from the data loader session
-        data_loader_url = "http://127.0.0.1:8005"
+        data_loader_url = "http://data-loader-agent:8005"
         
         try:
             response = requests.post(

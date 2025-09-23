@@ -12,6 +12,7 @@ This client handles communication with 6 uAgents running on ports 8004-8009:
 
 import aiohttp
 import asyncio
+import os
 from typing import Dict, Any, Optional
 from loguru import logger
 
@@ -19,7 +20,17 @@ from loguru import logger
 class UAgentClient:
     """Backend client for communicating with uAgent REST endpoints"""
     
-    def __init__(self, host: str = "127.0.0.1", user_id: Optional[str] = None):
+    def __init__(self, host: str = None, user_id: Optional[str] = None):
+        # Auto-detect Docker environment and use appropriate host
+        if host is None:
+            # Check if we're running inside Docker
+            if os.path.exists('/.dockerenv') or os.environ.get('DOCKER_ENV') == 'true':
+                # Inside Docker - use service names
+                host = "localhost"  # Will be overridden per service below
+            else:
+                # Outside Docker - use localhost
+                host = "127.0.0.1"
+        
         self.host = host
         self.user_id = user_id
         self.agent_ports = {
@@ -30,10 +41,24 @@ class UAgentClient:
             'training': 8008,
             'prediction': 8009,
         }
-        self.base_urls = {
-            agent_type: f"http://{host}:{port}"
-            for agent_type, port in self.agent_ports.items()
-        }
+        
+        # Docker-aware service mapping
+        if os.path.exists('/.dockerenv') or os.environ.get('DOCKER_ENV') == 'true':
+            # Inside Docker - use service names from docker-compose.yml
+            self.base_urls = {
+                'loading': "http://data-loader-agent:8005",
+                'cleaning': "http://data-cleaning-agent:8004",
+                'visualization': "http://data-visualization-agent:8006",
+                'engineering': "http://feature-engineering-agent:8007",
+                'training': "http://h2o-ml-agent:8008",
+                'prediction': "http://ml-prediction-agent:8009",
+            }
+        else:
+            # Outside Docker - use localhost
+            self.base_urls = {
+                agent_type: f"http://{host}:{port}"
+                for agent_type, port in self.agent_ports.items()
+            }
     
     async def _request(self, agent_type: str, endpoint: str, data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Make HTTP request to uAgent"""

@@ -136,7 +136,7 @@ export function CodeViewer({
           </CardTitle>
           {description && <CardDescription>{description}</CardDescription>}
           <div className="text-sm text-muted-foreground">
-            {lines.length} lines • {code.length} characters
+            {lines.length} lines • {safeCode.length} characters
           </div>
         </div>
         
@@ -229,7 +229,7 @@ export function CodeViewer({
           <div className="mt-4 flex items-center justify-between text-xs text-muted-foreground">
             <div className="space-x-4">
               <span>Format: {language.toUpperCase()}</span>
-              <span>Size: {(code.length / 1024).toFixed(1)} KB</span>
+              <span>Size: {(safeCode.length / 1024).toFixed(1)} KB</span>
             </div>
             
             {downloadFileName && (
