@@ -212,7 +212,7 @@ const AGENT_BASE_URLS: Record<AgentType, string> = {
   cleaning: `http://${DEFAULT_HOST}:${AGENT_PORTS.cleaning}`, 
   visualization: `http://${DEFAULT_HOST}:${AGENT_PORTS.visualization}`,
   engineering: `http://${DEFAULT_HOST}:${AGENT_PORTS.engineering}`,
-  training: '/api/training', // Use backend proxy for training
+  training: `http://${DEFAULT_HOST}:${AGENT_PORTS.training}`,
   prediction: `http://${DEFAULT_HOST}:${AGENT_PORTS.prediction}`,
 };
 
