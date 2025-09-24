@@ -201,6 +201,8 @@ services:
       - AGENTVERSE_API_TOKEN=${AGENTVERSE_API_TOKEN}
       - REDIS_URL=redis://redis:6379/0
       - DATABASE_URL=postgresql://postgres:password@postgres:5432/ai_data_science_platform
+    volumes:
+      - ml_models:/app/logs
     depends_on:
       - backend
       - redis
@@ -220,6 +222,8 @@ services:
       - AGENTVERSE_API_TOKEN=${AGENTVERSE_API_TOKEN}
       - REDIS_URL=redis://redis:6379/0
       - DATABASE_URL=postgresql://postgres:password@postgres:5432/ai_data_science_platform
+    volumes:
+      - ml_models:/app/logs
     depends_on:
       - backend
       - redis
@@ -228,4 +232,5 @@ services:
 
 volumes:
   postgres_data:
-  mlflow_data: 
+  mlflow_data:
+  ml_models: 
