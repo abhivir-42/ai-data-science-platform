@@ -13,24 +13,23 @@ from typing import Dict, Any, Optional
 from datetime import datetime
 
 from app.schemas.data_analysis_schemas import MLModelingMetrics
-from app.uagent_v2.config import UAgentConfig
 
 
 class MLPredictionAgent:
     """Agent for making predictions with trained H2O models."""
-    
-    def __init__(self, model_metrics: MLModelingMetrics, target_variable: str, config: UAgentConfig):
+
+    def __init__(self, model_metrics: MLModelingMetrics, target_variable: str, output_dir: str = "./temp/predictions"):
         """
         Initialize the MLPredictionAgent.
-        
+
         Args:
             model_metrics: MLModelingMetrics object containing model information
             target_variable: Target variable name used for training
-            config: UAgentConfig object
+            output_dir: Directory for saving prediction outputs
         """
         self.model_metrics = model_metrics
         self.target_variable = target_variable
-        self.config = config
+        self.output_dir = output_dir
         self.logger = logging.getLogger(__name__)
         self._h2o_model = None
         
@@ -263,11 +262,9 @@ class MLPredictionAgent:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"batch_predictions_{timestamp}.csv"
         
-        # Use config output directory or create default
-        output_dir = getattr(self.config, 'output_dir', 'outputs')
-        os.makedirs(output_dir, exist_ok=True)
-        
-        output_path = os.path.join(output_dir, filename)
+        os.makedirs(self.output_dir, exist_ok=True)
+
+        output_path = os.path.join(self.output_dir, filename)
         result_df.to_csv(output_path, index=False)
         
         return output_path

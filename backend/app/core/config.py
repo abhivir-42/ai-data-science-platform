@@ -22,7 +22,6 @@ class Settings(BaseSettings):
     
     # API Keys
     OPENAI_API_KEY: Optional[str] = None
-    AGENTVERSE_API_TOKEN: Optional[str] = None
     
     # Application
     SECRET_KEY: str = "dev-secret-key-change-in-production"

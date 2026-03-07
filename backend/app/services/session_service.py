@@ -1,8 +1,8 @@
 """
 Centralized Session Service for managing agent sessions with database persistence.
 
-Replaces all individual SessionStore classes across uAgents with a single
-database-backed service that handles serialization, persistence, and session management.
+Database-backed service that handles serialization, persistence, and session management
+for all agent types.
 """
 
 import json

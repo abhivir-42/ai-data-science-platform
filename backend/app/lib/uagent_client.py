@@ -1,263 +1,338 @@
 """
-uAgent Client for backend integration with AI Data Science Platform agents
+Internal agent client for workflow orchestration.
 
-This client handles communication with 6 uAgents running on ports 8004-8009:
-- 8004: Data Cleaning Agent 
-- 8005: Data Loader Agent
-- 8006: Data Visualization Agent  
-- 8007: Feature Engineering Agent
-- 8008: H2O ML Training Agent
-- 8009: ML Prediction Agent
+This replaces the old HTTP-based uAgent client that routed to 6 separate
+microservices on ports 8004-8009. Now calls agents directly in-process.
 """
 
-import aiohttp
-import asyncio
-import os
-from typing import Dict, Any, Optional
+import time
+from typing import Optional, Dict, Any
+
+import pandas as pd
 from loguru import logger
+
+from app.agents.data_loader_tools_agent import DataLoaderToolsAgent
+from app.agents.data_cleaning_agent import DataCleaningAgent
+from app.agents.data_visualisation_agent import DataVisualisationAgent
+from app.agents.feature_engineering_agent import FeatureEngineeringAgent
+from app.agents.ml_agents.h2o_ml_agent import H2OMLAgent
+from app.agents.ml_prediction_agent import MLPredictionAgent
+from app.api.agent_routes.common import (
+    get_llm, decode_csv_content, dataframe_to_json_safe, make_json_serializable,
+    session_service,
+)
 
 
 class UAgentClient:
-    """Backend client for communicating with uAgent REST endpoints"""
-    
-    def __init__(self, host: str = None, user_id: Optional[str] = None):
-        # Auto-detect Docker environment and use appropriate host
-        if host is None:
-            # Check if we're running inside Docker
-            if os.path.exists('/.dockerenv') or os.environ.get('DOCKER_ENV') == 'true':
-                # Inside Docker - use service names
-                host = "localhost"  # Will be overridden per service below
-            else:
-                # Outside Docker - use localhost
-                host = "127.0.0.1"
-        
-        self.host = host
+    """Internal client that calls agents directly (no HTTP)."""
+
+    def __init__(self, user_id: Optional[str] = None):
         self.user_id = user_id
-        self.agent_ports = {
-            'loading': 8005,
-            'cleaning': 8004,
-            'visualization': 8006,
-            'engineering': 8007,
-            'training': 8008,
-            'prediction': 8009,
-        }
-        
-        # Docker-aware service mapping
-        if os.path.exists('/.dockerenv') or os.environ.get('DOCKER_ENV') == 'true':
-            # Inside Docker - use service names from docker-compose.yml
-            self.base_urls = {
-                'loading': "http://data-loader-agent:8005",
-                'cleaning': "http://data-cleaning-agent:8004",
-                'visualization': "http://data-visualization-agent:8006",
-                'engineering': "http://feature-engineering-agent:8007",
-                'training': "http://h2o-ml-agent:8008",
-                'prediction': "http://ml-prediction-agent:8009",
-            }
-        else:
-            # Outside Docker - use localhost
-            self.base_urls = {
-                agent_type: f"http://{host}:{port}"
-                for agent_type, port in self.agent_ports.items()
-            }
-    
-    async def _request(self, agent_type: str, endpoint: str, data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Make HTTP request to uAgent"""
-        url = f"{self.base_urls[agent_type]}{endpoint}"
-        
-        timeout = aiohttp.ClientTimeout(total=300)  # 5 minutes for long operations
-        
-        # Add user_id to data if available
-        if data is not None and self.user_id is not None:
-            data['user_id'] = self.user_id
-        
+
+    def _get_df_from_session(self, session: dict) -> Optional[pd.DataFrame]:
+        """Extract a DataFrame from a session's agent."""
+        agent = session.get("agent")
+        if agent is None:
+            return None
+        for method in ["get_data_engineered", "get_data_cleaned", "get_data_raw"]:
+            if hasattr(agent, method):
+                df = getattr(agent, method)()
+                if df is not None and isinstance(df, pd.DataFrame):
+                    return df
+        if hasattr(agent, "get_artifacts"):
+            df = agent.get_artifacts(as_dataframe=True)
+            if df is not None and isinstance(df, pd.DataFrame):
+                return df
+        return None
+
+    async def load_file(self, agent_type: str, filename: str, file_content: str, user_instructions: str = "") -> Dict[str, Any]:
+        start = time.time()
         try:
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                if data is not None:
-                    async with session.post(url, json=data) as response:
-                        if response.status != 200:
-                            error_text = await response.text()
-                            raise Exception(f"Request to {url} failed: {response.status} {error_text}")
-                        return await response.json()
-                else:
-                    async with session.get(url) as response:
-                        if response.status != 200:
-                            error_text = await response.text()
-                            raise Exception(f"Request to {url} failed: {response.status} {error_text}")
-                        return await response.json()
-        except asyncio.TimeoutError:
-            raise Exception(f"Request to {url} timed out")
+            df = decode_csv_content(file_content, filename)
+            llm = get_llm()
+            agent = DataLoaderToolsAgent(model=llm, create_react_agent_kwargs={}, invoke_react_agent_kwargs={}, checkpointer=None)
+            agent.invoke_agent(user_instructions=user_instructions or "Load and analyze the uploaded file", data_raw=df)
+
+            session_id = await session_service.create_session(agent, "loading", {
+                "operation": "load_file", "filename": filename, "execution_time": time.time() - start
+            }, self.user_id)
+
+            return {"success": True, "session_id": session_id, "message": "Data loaded", "execution_time_seconds": time.time() - start}
         except Exception as e:
-            logger.error(f"Request to {url} failed: {e}")
-            raise
-    
-    # Data Loader Agent (8005)
-    async def load_file(self, agent_type: str, filename: str, file_content: str, user_instructions: str = None) -> Dict[str, Any]:
-        """Load file using data loader agent"""
-        data = {
-            'filename': filename,
-            'file_content': file_content,
-            'user_instructions': user_instructions or 'Load and analyze the uploaded file'
-        }
-        return await self._request('loading', '/load-file', data)
-    
-    async def get_session_data(self, agent_type: str, session_id: str) -> Dict[str, Any]:
-        """Get session data from any agent"""
-        if agent_type == 'loading':
-            return await self._request('loading', '/get-artifacts', {'session_id': session_id})
-        elif agent_type == 'cleaning':
-            return await self._request('cleaning', '/get-cleaned-data', {'session_id': session_id})
-        elif agent_type == 'engineering':
-            return await self._request('engineering', '/get-session-data', {'session_id': session_id})
-        elif agent_type == 'training':
-            return await self._request('training', '/get-original-data', {'session_id': session_id})
-        elif agent_type == 'prediction':
-            return await self._request('prediction', '/get-prediction-results', {'session_id': session_id})
-        else:
-            raise ValueError(f"Unknown agent type: {agent_type}")
-    
-    # Data Cleaning Agent (8004)
-    async def clean_data_from_session(self, session_id: str, user_instructions: str = None) -> Dict[str, Any]:
-        """Clean data using existing session"""
-        data = {
-            'session_id': session_id,
-            'user_instructions': user_instructions or 'Clean the data using recommended steps'
-        }
-        return await self._request('cleaning', '/clean-from-session', data)
-    
-    async def clean_csv_data(self, filename: str, file_content: str, user_instructions: str = None) -> Dict[str, Any]:
-        """Clean CSV data directly"""
-        data = {
-            'filename': filename,
-            'file_content': file_content,
-            'user_instructions': user_instructions or 'Clean the data using recommended steps'
-        }
-        return await self._request('cleaning', '/clean-csv', data)
-    
-    async def get_session_code(self, agent_type: str, session_id: str) -> Dict[str, Any]:
-        """Get generated code from agent session"""
-        if agent_type == 'cleaning':
-            return await self._request('cleaning', '/get-cleaning-function', {'session_id': session_id})
-        elif agent_type == 'visualization':
-            return await self._request('visualization', '/get-visualization-function', {'session_id': session_id})
-        elif agent_type == 'engineering':
-            return await self._request('engineering', '/get-engineering-function', {'session_id': session_id})
-        elif agent_type == 'training':
-            return await self._request('training', '/get-training-function', {'session_id': session_id})
-        else:
-            raise ValueError(f"Code not available for agent type: {agent_type}")
-    
-    # Data Visualization Agent (8006)
-    async def create_chart_from_session(self, session_id: str, user_instructions: str = None) -> Dict[str, Any]:
-        """Create chart using existing session"""
-        data = {
-            'session_id': session_id,
-            'user_instructions': user_instructions or 'Create comprehensive visualizations to understand the data'
-        }
-        return await self._request('visualization', '/create-chart-from-session', data)
-    
-    async def create_chart_csv(self, filename: str, file_content: str, user_instructions: str = None) -> Dict[str, Any]:
-        """Create chart from CSV data directly"""
-        data = {
-            'filename': filename,
-            'file_content': file_content,
-            'user_instructions': user_instructions or 'Create comprehensive visualizations to understand the data'
-        }
-        return await self._request('visualization', '/create-chart-csv', data)
-    
-    async def get_session_chart(self, agent_type: str, session_id: str) -> Dict[str, Any]:
-        """Get chart from visualization session"""
-        if agent_type != 'visualization':
-            raise ValueError('Charts only available for visualization agent')
-        return await self._request('visualization', '/get-plotly-graph', {'session_id': session_id})
-    
-    # Feature Engineering Agent (8007)
-    async def engineer_features_from_session(self, session_id: str, target_variable: str, user_instructions: str = None) -> Dict[str, Any]:
-        """Engineer features using existing session"""
-        data = {
-            'session_id': session_id,
-            'target_variable': target_variable,
-            'user_instructions': user_instructions or 'Engineer features for machine learning'
-        }
-        return await self._request('engineering', '/engineer-features', data)
-    
-    async def engineer_features_csv(self, filename: str, file_content: str, target_variable: str, user_instructions: str = None) -> Dict[str, Any]:
-        """Engineer features from CSV data directly"""
-        data = {
-            'filename': filename,
-            'file_content': file_content,
-            'target_variable': target_variable,
-            'user_instructions': user_instructions or 'Engineer features for machine learning'
-        }
-        return await self._request('engineering', '/engineer-features-csv', data)
-    
-    # ML Training Agent (8008)
-    async def train_model_from_session(self, session_id: str, target_variable: str, user_instructions: str = None, max_runtime_secs: int = 120) -> Dict[str, Any]:
-        """Train model using existing session"""
-        data = {
-            'session_id': session_id,
-            'target_variable': target_variable,
-            'user_instructions': user_instructions or 'Train machine learning models',
-            'max_runtime_secs': max_runtime_secs
-        }
-        return await self._request('training', '/train-model', data)
-    
-    async def train_model_csv(self, filename: str, file_content: str, target_variable: str, user_instructions: str = None, max_runtime_secs: int = 120) -> Dict[str, Any]:
-        """Train model from CSV data directly"""
-        data = {
-            'filename': filename,
-            'file_content': file_content,
-            'target_variable': target_variable,
-            'user_instructions': user_instructions or 'Train machine learning models',
-            'max_runtime_secs': max_runtime_secs
-        }
-        return await self._request('training', '/train-model-csv', data)
-    
-    async def get_session_leaderboard(self, agent_type: str, session_id: str) -> Dict[str, Any]:
-        """Get leaderboard from training session"""
-        if agent_type != 'training':
-            raise ValueError('Leaderboard only available for training agent')
-        return await self._request('training', '/get-leaderboard', {'session_id': session_id})
-    
-    async def get_model_path(self, agent_type: str, session_id: str) -> Dict[str, Any]:
-        """Get model path from training session"""
-        if agent_type != 'training':
-            raise ValueError('Model path only available for training agent')
-        return await self._request('training', '/get-model-path', {'session_id': session_id})
-    
-    # ML Prediction Agent (8009)
+            logger.error(f"load_file failed: {e}")
+            return {"success": False, "error": str(e), "session_id": ""}
+
+    async def clean_data_from_session(self, session_id: str, user_instructions: str = "") -> Dict[str, Any]:
+        start = time.time()
+        try:
+            session = await session_service.get_session(session_id)
+            if not session:
+                return {"success": False, "error": "Session not found", "session_id": ""}
+
+            df = self._get_df_from_session(session)
+            if df is None:
+                return {"success": False, "error": "No data in session", "session_id": ""}
+
+            llm = get_llm()
+            agent = DataCleaningAgent(model=llm, log=True, log_path="./temp", overwrite=True, human_in_the_loop=False, bypass_recommended_steps=False, bypass_explain_code=False, n_samples=30)
+            agent.invoke_agent(data_raw=df, user_instructions=user_instructions or "Clean the data", max_retries=3)
+
+            new_session_id = await session_service.create_session(agent, "cleaning", {
+                "operation": "clean_from_session", "source_session_id": session_id, "execution_time": time.time() - start
+            }, self.user_id)
+
+            return {"success": True, "session_id": new_session_id, "message": "Data cleaned", "execution_time_seconds": time.time() - start}
+        except Exception as e:
+            logger.error(f"clean_data_from_session failed: {e}")
+            return {"success": False, "error": str(e), "session_id": ""}
+
+    async def clean_csv_data(self, filename: str, file_content: str, user_instructions: str = "") -> Dict[str, Any]:
+        start = time.time()
+        try:
+            df = decode_csv_content(file_content, filename)
+            llm = get_llm()
+            agent = DataCleaningAgent(model=llm, log=True, log_path="./temp", overwrite=True, human_in_the_loop=False, bypass_recommended_steps=False, bypass_explain_code=False, n_samples=30)
+            agent.invoke_agent(data_raw=df, user_instructions=user_instructions or "Clean the data", max_retries=3)
+
+            session_id = await session_service.create_session(agent, "cleaning", {
+                "operation": "clean_csv", "filename": filename, "execution_time": time.time() - start
+            }, self.user_id)
+
+            return {"success": True, "session_id": session_id, "message": "CSV cleaned", "execution_time_seconds": time.time() - start}
+        except Exception as e:
+            logger.error(f"clean_csv_data failed: {e}")
+            return {"success": False, "error": str(e), "session_id": ""}
+
+    async def create_chart_from_session(self, session_id: str, user_instructions: str = "") -> Dict[str, Any]:
+        start = time.time()
+        try:
+            session = await session_service.get_session(session_id)
+            if not session:
+                return {"success": False, "error": "Session not found", "session_id": ""}
+
+            df = self._get_df_from_session(session)
+            if df is None:
+                return {"success": False, "error": "No data in session", "session_id": ""}
+
+            llm = get_llm()
+            agent = DataVisualisationAgent(model=llm, log=True, log_path="./temp", overwrite=True, human_in_the_loop=False, bypass_recommended_steps=False, bypass_explain_code=False, n_samples=30)
+            agent.invoke_agent(data_raw=df, user_instructions=user_instructions or "Create visualizations", max_retries=3)
+
+            new_session_id = await session_service.create_session(agent, "visualization", {
+                "operation": "create_chart_from_session", "source_session_id": session_id, "execution_time": time.time() - start
+            }, self.user_id)
+
+            return {"success": True, "session_id": new_session_id, "message": "Chart created", "execution_time_seconds": time.time() - start}
+        except Exception as e:
+            logger.error(f"create_chart_from_session failed: {e}")
+            return {"success": False, "error": str(e), "session_id": ""}
+
+    async def create_chart_csv(self, filename: str, file_content: str, user_instructions: str = "") -> Dict[str, Any]:
+        start = time.time()
+        try:
+            df = decode_csv_content(file_content, filename)
+            llm = get_llm()
+            agent = DataVisualisationAgent(model=llm, log=True, log_path="./temp", overwrite=True, human_in_the_loop=False, bypass_recommended_steps=False, bypass_explain_code=False, n_samples=30)
+            agent.invoke_agent(data_raw=df, user_instructions=user_instructions or "Create visualizations", max_retries=3)
+
+            session_id = await session_service.create_session(agent, "visualization", {
+                "operation": "create_chart_csv", "filename": filename, "execution_time": time.time() - start
+            }, self.user_id)
+
+            return {"success": True, "session_id": session_id, "message": "Chart created", "execution_time_seconds": time.time() - start}
+        except Exception as e:
+            logger.error(f"create_chart_csv failed: {e}")
+            return {"success": False, "error": str(e), "session_id": ""}
+
+    async def engineer_features_from_session(self, session_id: str, target_variable: str, user_instructions: str = "") -> Dict[str, Any]:
+        start = time.time()
+        try:
+            session = await session_service.get_session(session_id)
+            if not session:
+                return {"success": False, "error": "Session not found", "session_id": ""}
+
+            df = self._get_df_from_session(session)
+            if df is None:
+                return {"success": False, "error": "No data in session", "session_id": ""}
+
+            llm = get_llm()
+            agent = FeatureEngineeringAgent(model=llm, log=True, log_path="./temp", overwrite=True, human_in_the_loop=False, bypass_recommended_steps=False, bypass_explain_code=False, n_samples=30)
+            agent.invoke_agent(data_raw=df, user_instructions=user_instructions or "Engineer features", target_variable=target_variable, max_retries=3)
+
+            new_session_id = await session_service.create_session(agent, "engineering", {
+                "operation": "engineer_from_session", "source_session_id": session_id, "target_variable": target_variable, "execution_time": time.time() - start
+            }, self.user_id)
+
+            return {"success": True, "session_id": new_session_id, "message": "Features engineered", "execution_time_seconds": time.time() - start}
+        except Exception as e:
+            logger.error(f"engineer_features_from_session failed: {e}")
+            return {"success": False, "error": str(e), "session_id": ""}
+
+    async def engineer_features_csv(self, filename: str, file_content: str, target_variable: str, user_instructions: str = "") -> Dict[str, Any]:
+        start = time.time()
+        try:
+            df = decode_csv_content(file_content, filename)
+            llm = get_llm()
+            agent = FeatureEngineeringAgent(model=llm, log=True, log_path="./temp", overwrite=True, human_in_the_loop=False, bypass_recommended_steps=False, bypass_explain_code=False, n_samples=30)
+            agent.invoke_agent(data_raw=df, user_instructions=user_instructions or "Engineer features", target_variable=target_variable, max_retries=3)
+
+            session_id = await session_service.create_session(agent, "engineering", {
+                "operation": "engineer_csv", "filename": filename, "target_variable": target_variable, "execution_time": time.time() - start
+            }, self.user_id)
+
+            return {"success": True, "session_id": session_id, "message": "Features engineered", "execution_time_seconds": time.time() - start}
+        except Exception as e:
+            logger.error(f"engineer_features_csv failed: {e}")
+            return {"success": False, "error": str(e), "session_id": ""}
+
+    async def train_model_from_session(self, session_id: str, target_variable: str, user_instructions: str = "", max_runtime_secs: int = 300) -> Dict[str, Any]:
+        start = time.time()
+        try:
+            session = await session_service.get_session(session_id)
+            if not session:
+                return {"success": False, "error": "Session not found", "session_id": ""}
+
+            df = self._get_df_from_session(session)
+            if df is None:
+                return {"success": False, "error": "No data in session", "session_id": ""}
+
+            llm = get_llm()
+            agent = H2OMLAgent(model=llm, log=True, log_path="./temp", model_directory="./temp/models", overwrite=True, human_in_the_loop=False, bypass_recommended_steps=False, bypass_explain_code=False)
+            agent.invoke_agent(data_raw=df, user_instructions=user_instructions or "Train models", target_variable=target_variable, max_retries=3)
+
+            new_session_id = await session_service.create_session(agent, "training", {
+                "operation": "train_from_session", "source_session_id": session_id, "target_variable": target_variable, "execution_time": time.time() - start
+            }, self.user_id)
+
+            return {"success": True, "session_id": new_session_id, "message": "Model trained", "execution_time_seconds": time.time() - start}
+        except Exception as e:
+            logger.error(f"train_model_from_session failed: {e}")
+            return {"success": False, "error": str(e), "session_id": ""}
+
+    async def train_model_csv(self, filename: str, file_content: str, target_variable: str, user_instructions: str = "", max_runtime_secs: int = 300) -> Dict[str, Any]:
+        start = time.time()
+        try:
+            df = decode_csv_content(file_content, filename)
+            llm = get_llm()
+            agent = H2OMLAgent(model=llm, log=True, log_path="./temp", model_directory="./temp/models", overwrite=True, human_in_the_loop=False, bypass_recommended_steps=False, bypass_explain_code=False)
+            agent.invoke_agent(data_raw=df, user_instructions=user_instructions or "Train models", target_variable=target_variable, max_retries=3)
+
+            session_id = await session_service.create_session(agent, "training", {
+                "operation": "train_csv", "filename": filename, "target_variable": target_variable, "execution_time": time.time() - start
+            }, self.user_id)
+
+            return {"success": True, "session_id": session_id, "message": "Model trained", "execution_time_seconds": time.time() - start}
+        except Exception as e:
+            logger.error(f"train_model_csv failed: {e}")
+            return {"success": False, "error": str(e), "session_id": ""}
+
     async def predict_batch(self, model_session_id: str, filename: str = None, file_content: str = None) -> Dict[str, Any]:
-        """Make batch predictions"""
-        data = {
-            'model_session_id': model_session_id,
-            'filename': filename,
-            'file_content': file_content
-        }
-        return await self._request('prediction', '/predict-batch', data)
-    
-    async def predict_single(self, model_session_id: str, input_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Make single prediction"""
-        data = {
-            'model_session_id': model_session_id,
-            'input_data': input_data
-        }
-        return await self._request('prediction', '/predict-single', data)
-    
-    # Health checks
-    async def check_agent_health(self, agent_type: str) -> Dict[str, Any]:
-        """Check health of specific agent"""
+        start = time.time()
         try:
-            return await self._request(agent_type, '/health')
+            session = await session_service.get_session(model_session_id)
+            if not session or "agent" not in session:
+                return {"success": False, "error": "Model session not found", "session_id": ""}
+
+            training_agent = session["agent"]
+            model_path = training_agent.get_model_path() if hasattr(training_agent, "get_model_path") else None
+
+            llm = get_llm()
+            agent = MLPredictionAgent(model=llm, log=True, log_path="./temp", model_directory="./temp/models", overwrite=True, human_in_the_loop=False, bypass_recommended_steps=False, bypass_explain_code=False)
+
+            if model_path:
+                agent.load_model(model_path)
+
+            result = None
+            if file_content:
+                df = decode_csv_content(file_content, filename or "batch.csv")
+                result = agent.predict_batch(df) if hasattr(agent, "predict_batch") else None
+
+            new_session_id = await session_service.create_session(agent, "prediction", {
+                "operation": "predict_batch", "model_session_id": model_session_id, "batch_results": make_json_serializable(result), "execution_time": time.time() - start
+            }, self.user_id)
+
+            return {"success": True, "session_id": new_session_id, "message": "Predictions made", "execution_time_seconds": time.time() - start}
         except Exception as e:
-            return {
-                'status': 'unhealthy',
-                'error': str(e)
-            }
-    
-    async def check_all_agents_health(self) -> Dict[str, Dict[str, Any]]:
-        """Check health of all agents"""
-        health_checks = {}
-        
-        for agent_type in self.agent_ports.keys():
-            health_checks[agent_type] = await self.check_agent_health(agent_type)
-        
-        return health_checks
+            logger.error(f"predict_batch failed: {e}")
+            return {"success": False, "error": str(e), "session_id": ""}
+
+    # Session data retrieval methods used by workflow_execution
+    async def get_session_data(self, agent_type: str, session_id: str) -> Optional[Dict[str, Any]]:
+        try:
+            session = await session_service.get_session(session_id)
+            if not session:
+                return None
+            df = self._get_df_from_session(session)
+            return dataframe_to_json_safe(df) if df is not None else None
+        except Exception as e:
+            logger.error(f"get_session_data failed: {e}")
+            return None
+
+    async def get_session_code(self, agent_type: str, session_id: str) -> Optional[Dict[str, Any]]:
+        try:
+            session = await session_service.get_session(session_id)
+            if not session or "agent" not in session:
+                return None
+            agent = session["agent"]
+            code = None
+            for method in ["get_data_cleaner_function", "get_data_visualization_function", "get_feature_engineer_function", "get_h2o_training_function"]:
+                if hasattr(agent, method):
+                    code = getattr(agent, method)()
+                    if code:
+                        break
+            return {"success": True, "generated_code": code} if code else None
+        except Exception as e:
+            logger.error(f"get_session_code failed: {e}")
+            return None
+
+    async def get_session_chart(self, agent_type: str, session_id: str) -> Optional[Dict[str, Any]]:
+        try:
+            session = await session_service.get_session(session_id)
+            if not session or "agent" not in session:
+                return None
+            agent = session["agent"]
+            response = agent.response if hasattr(agent, "response") else None
+            if response and isinstance(response, dict):
+                plotly_graph = response.get("plotly_graph")
+                return {"success": True, "plotly_chart": make_json_serializable(plotly_graph)} if plotly_graph else None
+            return None
+        except Exception as e:
+            logger.error(f"get_session_chart failed: {e}")
+            return None
+
+    async def get_session_leaderboard(self, agent_type: str, session_id: str) -> Optional[Dict[str, Any]]:
+        try:
+            session = await session_service.get_session(session_id)
+            if not session or "agent" not in session:
+                return None
+            agent = session["agent"]
+            lb = agent.get_leaderboard() if hasattr(agent, "get_leaderboard") else None
+            if lb is not None:
+                data = lb.to_dict(orient="records") if hasattr(lb, "to_dict") else make_json_serializable(lb)
+                return {"success": True, "leaderboard": data}
+            return None
+        except Exception as e:
+            logger.error(f"get_session_leaderboard failed: {e}")
+            return None
+
+    async def get_model_path(self, agent_type: str, session_id: str) -> Optional[str]:
+        try:
+            session = await session_service.get_session(session_id)
+            if not session or "agent" not in session:
+                return None
+            agent = session["agent"]
+            return agent.get_model_path() if hasattr(agent, "get_model_path") else None
+        except Exception as e:
+            logger.error(f"get_model_path failed: {e}")
+            return None
+
+    async def check_all_agents_health(self) -> Dict[str, Any]:
+        """All agents run in-process now, so health is always OK."""
+        return {
+            "loading": {"status": "ready", "agent_status": "ready"},
+            "cleaning": {"status": "ready", "agent_status": "ready"},
+            "visualization": {"status": "ready", "agent_status": "ready"},
+            "engineering": {"status": "ready", "agent_status": "ready"},
+            "training": {"status": "ready", "agent_status": "ready"},
+            "prediction": {"status": "ready", "agent_status": "ready"},
+        }

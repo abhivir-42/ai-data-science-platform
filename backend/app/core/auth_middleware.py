@@ -123,21 +123,13 @@ def get_optional_user_id(
     """FastAPI dependency for optional authentication"""
     return auth_middleware.optional_authentication(request, session_id, authorization)
 
-# Utility function for manual extraction (for uAgent endpoints)
+# Utility function for manual extraction from any request
 def extract_user_id_from_request(request) -> Optional[str]:
     """
-    Utility function to extract user_id from any request.
-    Used in uAgent endpoints that need manual authentication checking.
-    
-    For uAgents, the request might be a different object, so we handle both cases.
+    Utility function to extract user_id from any request object.
     """
-    # Handle FastAPI Request objects
     if hasattr(request, 'headers') and hasattr(request, 'cookies'):
         return auth_middleware.get_user_from_request(request)
-    
-    # Handle uAgent contexts - return None for now (uAgents need different auth approach)
-    # TODO: Implement uAgent-specific authentication
-    # For now, uAgents work without user authentication since they're internal services
     return None
 
 def require_user_id_from_request(request: Request) -> str:
