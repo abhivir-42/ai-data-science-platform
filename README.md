@@ -1,86 +1,81 @@
 # AI Data Science Platform
 
-A comprehensive, production-ready platform that democratizes data science by providing both technical and non-technical users with powerful AI agents for data analysis, machine learning, and insights generation.
+A full-stack platform that democratizes data science by providing AI-powered agents for automated data analysis, machine learning, and insights generation. Built with LangChain/LangGraph agents, H2O AutoML, and a modern React frontend.
 
-## 🚀 Features
+## Features
 
-- **8+ Specialized AI Agents**: Data loading, cleaning, wrangling, feature engineering, visualization, and ML
-- **Natural Language Interface**: Ask questions about your data in plain English
-- **Visual Pipeline Builder**: Drag-and-drop interface for building complex data workflows
-- **Real-time Processing**: WebSocket-based progress tracking and updates
-- **Interactive Visualizations**: Plotly-powered charts and dashboards
+- **6 Specialized AI Agents**: Data loading, cleaning, visualization, feature engineering, ML training, and prediction
+- **Natural Language Interface**: Describe what you want in plain English
+- **Visual Pipeline Builder**: Drag-and-drop workflow orchestration
+- **Real-time Processing**: WebSocket-based progress tracking
+- **Interactive Visualizations**: Plotly-powered charts
 - **AutoML Integration**: H2O AutoML with MLflow experiment tracking
-- **Multi-format Support**: CSV, Excel, JSON, Parquet, PDF data sources
+- **Multi-format Support**: CSV, Excel, JSON, Parquet, PDF
 
-## 🏗️ Architecture
+## Architecture
 
 ```
-Frontend (Next.js)  ←→  Backend (FastAPI)  ←→  Agents (Python)
-                              ↕
-                         Database (PostgreSQL)
-                              ↕
-                      Task Queue (Celery + Redis)
-                              ↕
-                        ML Tracking (MLflow)
+Frontend (Next.js 14)  <-->  Backend (FastAPI)  <-->  LangChain Agents
+        |                          |
+        |                    PostgreSQL + Redis
+        |                          |
+        |                   Celery Workers
+        |                          |
+        +-- Plotly Charts    MLflow Tracking
 ```
 
-## 📋 Prerequisites
+### Tech Stack
 
-- Python 3.9+
-- Node.js 18+
+- **Frontend**: Next.js 14, React 18, TypeScript, Tailwind CSS, Zustand, Plotly.js
+- **Backend**: Python 3.10, FastAPI, LangChain, LangGraph, OpenAI GPT-4o-mini
+- **ML**: H2O AutoML, scikit-learn, XGBoost
+- **Infrastructure**: PostgreSQL, Redis, Celery, MLflow, Docker
+
+## Quick Start
+
+### Prerequisites
+
 - Docker & Docker Compose
-- Git
+- OpenAI API key
 
-## 🚀 Quick Start
-
-### 1. Clone and Setup
+### Docker Setup (Recommended)
 
 ```bash
+git clone https://github.com/yourusername/ai-data-science-platform.git
 cd ai-data-science-platform
+
+# Configure environment
 cp env.example .env
-# Edit .env with your API keys from fetch/ai-data-science/.env
-```
+# Edit .env and set your OPENAI_API_KEY
 
-### 2. Development with Docker (Recommended)
-
-```bash
-# Start all services
+# Start all services (7 containers)
 docker-compose up -d
 
 # View logs
 docker-compose logs -f
-
-# Stop services
-docker-compose down
 ```
 
-Services will be available at:
-- **Frontend**: http://localhost:3000
+Services:
+- **Frontend**: http://localhost:8001
 - **Backend API**: http://localhost:8000
 - **API Docs**: http://localhost:8000/docs
-- **Celery Flower**: http://localhost:5555
-- **MLflow**: http://localhost:5000
+- **MLflow**: http://localhost:8002
+- **Celery Flower**: http://localhost:8003
 
-### 3. Manual Development Setup
+### Local Development
 
-#### Backend Setup
+#### Backend
 
 ```bash
-# Activate the existing virtual environment
-source ../ai-ds-venv/bin/activate
-
-# Install dependencies
 cd backend
+python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 
-# Set up database
-alembic upgrade head
-
-# Start development server
+# Start PostgreSQL and Redis (or use Docker for just those)
 uvicorn app.main:app --reload --port 8000
 ```
 
-#### Frontend Setup
+#### Frontend
 
 ```bash
 cd frontend
@@ -88,149 +83,88 @@ npm install
 npm run dev
 ```
 
-## 📚 Agent Integration
+## AI Agents
 
-The platform integrates all agents from `fetch/ai-data-science`:
+All agents use LangChain/LangGraph with GPT-4o-mini and run inside the single FastAPI backend:
 
-- **DataLoaderToolsAgent**: Multi-format data ingestion
-- **DataCleaningAgent**: Automated data preprocessing
-- **DataWranglingAgent**: Data transformation and reshaping
-- **FeatureEngineeringAgent**: Feature creation and encoding
-- **DataVisualisationAgent**: Interactive chart generation
-- **H2OMLAgent**: AutoML model training
-- **SupervisorAgent**: Workflow orchestration
-- **DataAnalysisAgent**: Enhanced workflow management
+| Agent | Description | Key Endpoints |
+|-------|-------------|---------------|
+| **Data Loader** | Multi-format data ingestion (CSV, Excel, JSON, PDF) | `/api/agents/loading/*` |
+| **Data Cleaning** | Automated preprocessing, missing values, outliers | `/api/agents/cleaning/*` |
+| **Data Visualization** | Interactive Plotly chart generation | `/api/agents/visualization/*` |
+| **Feature Engineering** | Feature creation, encoding, transformation | `/api/agents/engineering/*` |
+| **ML Training** | H2O AutoML model training with leaderboard | `/api/agents/training/*` |
+| **ML Prediction** | Single/batch predictions with trained models | `/api/agents/prediction/*` |
 
-## 🔧 API Endpoints
+## API Endpoints
 
-### Core Endpoints
+### Agent Operations
 ```
-GET    /api/agents                    # List available agents
-GET    /api/agents/{id}/schema        # Get agent parameter schema
-POST   /api/agents/{id}/execute       # Execute agent with parameters
-GET    /api/jobs/{jobId}/status       # Get job execution status
-DELETE /api/jobs/{jobId}              # Cancel running job
-```
-
-### Data Management
-```
-POST   /api/data/upload               # Upload datasets
-GET    /api/data/preview/{id}         # Preview dataset
-POST   /api/data/validate             # Validate data quality
-GET    /api/data/summary/{id}         # Get data summary
+POST   /api/agents/loading/load-file              # Upload and load data
+POST   /api/agents/cleaning/clean-csv              # Clean data from CSV
+POST   /api/agents/cleaning/clean-from-session     # Clean data from previous session
+POST   /api/agents/visualization/create-chart-direct  # Generate chart
+POST   /api/agents/engineering/engineer-features-csv   # Engineer features
+POST   /api/agents/training/train-model-csv        # Train ML model
+POST   /api/agents/prediction/predict-single       # Make prediction
 ```
 
-## 🧪 Testing
+### Core API
+```
+GET    /api/health                     # Health check
+GET    /api/agents                     # List available agents
+POST   /api/agents/{id}/execute        # Execute agent
+POST   /api/data/upload                # Upload datasets
+GET    /api/workflows/templates        # List workflow templates
+POST   /api/workflows/execute          # Execute workflow
+```
+
+## Environment Variables
 
 ```bash
-# Backend tests
-cd backend
-pytest
+# Required
+OPENAI_API_KEY=sk-proj-...
 
-# Frontend tests
-cd frontend
-npm test
+# Database (defaults work with Docker)
+DATABASE_URL=postgresql://postgres:password@localhost:5432/ai_data_science_platform
 
-# Integration tests
-docker-compose -f docker-compose.test.yml up --abort-on-container-exit
+# Redis (defaults work with Docker)
+REDIS_URL=redis://localhost:6379/0
+
+# Optional
+MLFLOW_TRACKING_URI=http://localhost:5000
+SECRET_KEY=your-secret-key
+ENVIRONMENT=development
+DEBUG=true
 ```
 
-## 📦 Production Deployment
+## Project Structure
 
-### Environment Variables
-
-Copy production values to `.env`:
-
-```bash
-# Production database
-DATABASE_URL=postgresql://user:pass@host:5432/dbname
-
-# Production Redis
-REDIS_URL=redis://host:6379/0
-
-# API Keys
-OPENAI_API_KEY=your_production_key
-AGENTVERSE_API_TOKEN=your_production_token
-
-# Security
-SECRET_KEY=your_secure_secret_key
-ENVIRONMENT=production
-DEBUG=false
+```
+ai-data-science-platform/
+├── backend/
+│   ├── app/
+│   │   ├── agents/          # Core LangChain/LangGraph agent classes
+│   │   ├── api/
+│   │   │   ├── agent_routes/ # Per-agent REST endpoints
+│   │   │   ├── agents.py     # Agent CRUD/execute
+│   │   │   ├── workflows.py  # Workflow orchestration
+│   │   │   └── ...
+│   │   ├── core/            # Config, database, logging
+│   │   ├── lib/             # Internal agent client
+│   │   ├── services/        # Session, workflow execution
+│   │   └── main.py          # FastAPI app
+│   ├── Dockerfile
+│   └── requirements.txt
+├── frontend/
+│   ├── app/                 # Next.js pages
+│   ├── components/          # React components
+│   ├── lib/                 # Agent client, store
+│   └── Dockerfile
+├── docker-compose.yml       # 7 services
+└── env.example
 ```
 
-### Docker Production Build
+## License
 
-```bash
-# Build production images
-docker-compose -f docker-compose.prod.yml build
-
-# Deploy
-docker-compose -f docker-compose.prod.yml up -d
-```
-
-## 🔍 Monitoring & Observability
-
-- **Health Checks**: `/health` endpoint
-- **Metrics**: Prometheus metrics at `:8001/metrics`
-- **Logs**: Structured logging with correlation IDs
-- **Tracing**: Request tracing through the system
-
-## 🤝 Contributing
-
-1. Follow the implementation plan in `implementation-plan.md`
-2. Use conventional commits
-3. Add tests for new features
-4. Update documentation
-
-## 📝 Development Notes
-
-### Agent Development
-
-When adding new agents:
-1. Create agent class in `backend/app/agents/`
-2. Add API endpoint in `backend/app/api/`
-3. Register in agent registry
-4. Add frontend form generation
-5. Update tests and documentation
-
-### Database Migrations
-
-```bash
-# Create new migration
-alembic revision --autogenerate -m "description"
-
-# Apply migrations
-alembic upgrade head
-```
-
-## 🐛 Troubleshooting
-
-### Common Issues
-
-1. **Import Errors**: Ensure `ai-ds-venv` is activated
-2. **Database Connection**: Check PostgreSQL is running
-3. **Redis Connection**: Verify Redis service is up
-4. **API Keys**: Confirm keys are set in `.env`
-
-### Logs
-
-```bash
-# Backend logs
-docker-compose logs backend
-
-# Celery worker logs
-docker-compose logs celery-worker
-
-# All services
-docker-compose logs -f
-```
-
-## 📞 Support
-
-- Check `implementation-plan.md` for development roadmap
-- Review existing agents in `fetch/ai-data-science/src/agents/`
-- Use existing test files as examples
-
-## 📄 License
-
-This project builds upon the existing `fetch/ai-data-science` codebase and maintains the same licensing terms. 
+MIT

@@ -388,7 +388,7 @@ async def get_workflow_templates() -> List[Dict[str, Any]]:
 
 @router.get("/health")
 async def check_agents_health() -> Dict[str, Any]:
-    """Check health of all uAgents required for workflows"""
+    """Check health of all agents required for workflows"""
     
     from app.lib.uagent_client import UAgentClient
     
