@@ -102,8 +102,9 @@ h2o-*/
 .Trashes
 Thumbs.db
 
-# Models and ML artifacts
-models/
+# ML model artifacts (not Python model files)
+/models/
+/temp/models/
 artifacts/
 checkpoints/
 

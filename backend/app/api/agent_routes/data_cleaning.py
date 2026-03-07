@@ -157,7 +157,9 @@ async def get_cleaned_data(request: SessionRequest):
 
         data = dataframe_to_json_safe(cleaned) if cleaned is not None else None
         original_shape = list(raw.shape) if raw is not None and hasattr(raw, "shape") else None
-        processed_shape = list(cleaned.shape) if cleaned is not None and hasattr(cleaned, "shape") else None
+        processed_shape = list(cleaned.shape) if cleaned is not None and hasattr(cleaned, "shape") else (
+            [len(cleaned), len(cleaned[0]) if cleaned else 0] if isinstance(cleaned, list) else None
+        )
 
         return DataResponse(success=True, message="Cleaned data retrieved", data=data, original_shape=original_shape, processed_shape=processed_shape)
     except Exception as e:

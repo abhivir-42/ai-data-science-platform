@@ -40,6 +40,22 @@ def dataframe_to_json_safe(df: pd.DataFrame) -> Dict[str, Any]:
     if df is None:
         return {"records": [], "columns": [], "shape": [0, 0]}
 
+    # Handle non-DataFrame inputs (e.g., list of dicts from deserialized agents)
+    if isinstance(df, list):
+        if len(df) > 0 and isinstance(df[0], dict):
+            return {"records": df[:100], "columns": list(df[0].keys()), "shape": [len(df), len(df[0])]}
+        return {"records": df[:100], "columns": [], "shape": [len(df), 0]}
+    if isinstance(df, dict):
+        if "records" in df:
+            return df
+        try:
+            df = pd.DataFrame(df)
+        except Exception:
+            return {"records": [df], "columns": list(df.keys()), "shape": [1, len(df)]}
+
+    if not isinstance(df, pd.DataFrame):
+        return {"records": [{"value": str(df)}], "columns": ["value"], "shape": [1, 1]}
+
     # Replace NaN/Inf with None for JSON serialization
     df_clean = df.copy()
     for col in df_clean.columns:
