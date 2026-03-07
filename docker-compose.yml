@@ -8,7 +8,6 @@ services:
       POSTGRES_DB: ai_data_science_platform
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password
-    # No external port mapping needed - internal only
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -20,14 +19,13 @@ services:
   # Redis for Celery and Caching
   redis:
     image: redis:7-alpine
-    # No external port mapping needed - internal only
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 30s
       timeout: 10s
       retries: 5
 
-  # Backend API
+  # Backend API (all agents run inside this single service)
   backend:
     build:
       context: ./backend
@@ -39,9 +37,13 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - JAVA_HOME=/usr/lib/jvm/default-java
     volumes:
       - ./backend:/app
       - ./uploads:/app/uploads
+      - ml_models:/app/temp/models
     depends_on:
       postgres:
         condition: service_healthy
@@ -59,9 +61,12 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
     volumes:
       - ./backend:/app
       - ./uploads:/app/uploads
+      - ml_models:/app/temp/models
     depends_on:
       postgres:
         condition: service_healthy
@@ -111,126 +116,7 @@ services:
       bash -c "pip install mlflow psycopg2-binary &&
                mlflow server --host 0.0.0.0 --port 5000 --default-artifact-root /mlflow/artifacts"
 
-  # Data Cleaning uAgent (port 8004)
-  data-cleaning-agent:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    ports:
-      - "8004:8004"
-    environment:
-      - PYTHONPATH=/app
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - AGENTVERSE_API_TOKEN=${AGENTVERSE_API_TOKEN}
-      - REDIS_URL=redis://redis:6379/0
-      - DATABASE_URL=postgresql://postgres:password@postgres:5432/ai_data_science_platform
-    depends_on:
-      - backend
-      - redis
-    command: python app/api/uagents/data_cleaning_rest_agent.py
-    restart: unless-stopped
-
-  # Data Loader uAgent (port 8005)
-  data-loader-agent:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    ports:
-      - "8005:8005"
-    environment:
-      - PYTHONPATH=/app
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - AGENTVERSE_API_TOKEN=${AGENTVERSE_API_TOKEN}
-      - REDIS_URL=redis://redis:6379/0
-      - DATABASE_URL=postgresql://postgres:password@postgres:5432/ai_data_science_platform
-    depends_on:
-      - backend
-      - redis
-    command: python app/api/uagents/data_loader_rest_agent.py
-    restart: unless-stopped
-
-  # Data Visualization uAgent (port 8006)
-  data-visualization-agent:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    ports:
-      - "8006:8006"
-    environment:
-      - PYTHONPATH=/app
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - AGENTVERSE_API_TOKEN=${AGENTVERSE_API_TOKEN}
-      - REDIS_URL=redis://redis:6379/0
-      - DATABASE_URL=postgresql://postgres:password@postgres:5432/ai_data_science_platform
-    depends_on:
-      - backend
-      - redis
-    command: python app/api/uagents/data_visualization_rest_agent.py
-    restart: unless-stopped
-
-  # Feature Engineering uAgent (port 8007)
-  feature-engineering-agent:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    ports:
-      - "8007:8007"
-    environment:
-      - PYTHONPATH=/app
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - AGENTVERSE_API_TOKEN=${AGENTVERSE_API_TOKEN}
-      - REDIS_URL=redis://redis:6379/0
-      - DATABASE_URL=postgresql://postgres:password@postgres:5432/ai_data_science_platform
-    depends_on:
-      - backend
-      - redis
-    command: python app/api/uagents/feature_engineering_rest_agent.py
-    restart: unless-stopped
-
-  # H2O ML Training uAgent (port 8008)
-  h2o-ml-agent:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    ports:
-      - "8008:8008"
-    environment:
-      - PYTHONPATH=/app
-      - JAVA_HOME=/usr/lib/jvm/default-java
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - AGENTVERSE_API_TOKEN=${AGENTVERSE_API_TOKEN}
-      - REDIS_URL=redis://redis:6379/0
-      - DATABASE_URL=postgresql://postgres:password@postgres:5432/ai_data_science_platform
-    volumes:
-      - ml_models:/app/logs
-    depends_on:
-      - backend
-      - redis
-    command: python app/api/uagents/h2o_ml_rest_agent.py
-    restart: unless-stopped
-
-  # ML Prediction uAgent (port 8009)
-  ml-prediction-agent:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    ports:
-      - "8009:8009"
-    environment:
-      - PYTHONPATH=/app
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - AGENTVERSE_API_TOKEN=${AGENTVERSE_API_TOKEN}
-      - REDIS_URL=redis://redis:6379/0
-      - DATABASE_URL=postgresql://postgres:password@postgres:5432/ai_data_science_platform
-    volumes:
-      - ml_models:/app/logs
-    depends_on:
-      - backend
-      - redis
-    command: python app/api/uagents/ml_prediction_rest_agent.py
-    restart: unless-stopped
-
 volumes:
   postgres_data:
   mlflow_data:
-  ml_models: 
+  ml_models:
