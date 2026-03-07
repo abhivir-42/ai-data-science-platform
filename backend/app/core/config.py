@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     
     # CORS
-    ALLOWED_ORIGINS: List[str] = Field(default=["http://localhost:8001", "http://127.0.0.1:8001", "http://35.197.223.41:8001"])
+    ALLOWED_ORIGINS: List[str] = Field(default=["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:8001", "http://127.0.0.1:8001"])
     
     # Monitoring
     ENABLE_METRICS: bool = True

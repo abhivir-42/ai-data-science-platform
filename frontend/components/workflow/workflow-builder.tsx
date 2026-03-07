@@ -103,6 +103,7 @@ export function WorkflowBuilder() {
   const [showExecuteDialog, setShowExecuteDialog] = useState(false)
   const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null)
   const [uploadedFile, setUploadedFile] = useState<File | null>(null)
+  const [targetVariable, setTargetVariable] = useState('')
   const [isExecuting, setIsExecuting] = useState(false)
   const [executionResults, setExecutionResults] = useState<any>(null)
   
@@ -144,6 +145,7 @@ export function WorkflowBuilder() {
     setSelectedTemplate(template.id)
     setShowExecuteDialog(true)
     setUploadedFile(null)
+    setTargetVariable('')
     setExecutionResults(null)
     
     toast({
@@ -222,15 +224,43 @@ export function WorkflowBuilder() {
           'Perform comprehensive data analysis including loading, cleaning, and visualization'
         )
       } else if (selectedTemplate === 'ml-pipeline') {
-        // For ML pipeline, we'd need to ask for target variable
-        // For now, let's use a default message
-        toast({
-          title: "ML Pipeline",
-          description: "ML Pipeline workflow requires target variable selection. This will be implemented in the next update.",
-          variant: "default",
-        })
-        setIsExecuting(false)
-        return
+        if (!targetVariable.trim()) {
+          toast({
+            title: "Target variable required",
+            description: "Please specify the target variable (column to predict) for ML training",
+            variant: "destructive",
+          })
+          setIsExecuting(false)
+          return
+        }
+        result = await workflowClient.executeMLPipeline(
+          uploadedFile,
+          targetVariable,
+          'Train machine learning models on the uploaded dataset'
+        )
+      } else if (selectedTemplate === 'data-prep') {
+        if (!targetVariable.trim()) {
+          toast({
+            title: "Target variable required",
+            description: "Please specify the target variable for feature engineering",
+            variant: "destructive",
+          })
+          setIsExecuting(false)
+          return
+        }
+        // Read file and base64 encode for the loading step
+        const fileBuffer = await uploadedFile.arrayBuffer()
+        const base64Content = btoa(
+          new Uint8Array(fileBuffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
+        )
+        result = await workflowClient.executeWorkflow(
+          `Data Preparation - ${uploadedFile.name}`,
+          [
+            { agent_type: 'loading', parameters: { filename: uploadedFile.name, file_content: base64Content, user_instructions: 'Load and analyze the uploaded file' } },
+            { agent_type: 'cleaning', parameters: { user_instructions: 'Clean the data: handle missing values, remove duplicates' } },
+            { agent_type: 'engineering', parameters: { target_variable: targetVariable, user_instructions: 'Engineer features for analysis' } },
+          ]
+        )
       } else {
         toast({
           title: "Template not supported",
@@ -743,6 +773,24 @@ export function WorkflowBuilder() {
                     />
                   </div>
 
+                  {(selectedTemplate === 'ml-pipeline' || selectedTemplate === 'data-prep') && (
+                    <div className="space-y-2">
+                      <Label htmlFor="target-variable" className="text-base font-medium text-gray-900">
+                        Target Variable *
+                      </Label>
+                      <Input
+                        id="target-variable"
+                        placeholder="e.g., price, sales, category, target"
+                        value={targetVariable}
+                        onChange={(e) => setTargetVariable(e.target.value)}
+                        className="bg-white"
+                      />
+                      <p className="text-sm text-gray-500">
+                        The column name in your dataset that you want to predict
+                      </p>
+                    </div>
+                  )}
+
                   <div className="flex items-center justify-between pt-4 border-t border-gray-200">
                     <Button
                       variant="outline"
@@ -823,6 +871,7 @@ export function WorkflowBuilder() {
                         setExecutionResults(null)
                         setSelectedTemplate(null)
                         setUploadedFile(null)
+                        setTargetVariable('')
                       }}
                     >
                       Close
