@@ -1,141 +1,39 @@
-# Byte-compiled / optimized / DLL files
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
-
-# C extensions
 *.so
-
-# Distribution / packaging
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-share/python-wheels/
 *.egg-info/
-.installed.cfg
 *.egg
-MANIFEST
+dist/
+build/
+.eggs/
 
-# PyInstaller
-*.manifest
-*.spec
-
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
-
-# Unit test / coverage reports
-htmlcov/
-.tox/
-.nox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.py,cover
-.hypothesis/
-.pytest_cache/
-cover/
-
-# Translations
-*.mo
-*.pot
-
-# Django stuff:
-*.log
-local_settings.py
-db.sqlite3
-db.sqlite3-journal
-
-# Flask stuff:
-instance/
-.webassets-cache
-
-# Scrapy stuff:
-.scrapy
-
-# Sphinx documentation
-docs/_build/
-
-# PyBuilder
-.pybuilder/
-target/
-
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# IPython
-profile_default/
-ipython_config.py
-
-# pyenv
-.python-version
-
-# pipenv
-Pipfile.lock
-
-# poetry
-poetry.lock
-
-# pdm
-.pdm.toml
-
-# PEP 582
-__pypackages__/
-
-# Celery stuff
-celerybeat-schedule
-celerybeat.pid
-
-# SageMath parsed files
-*.sage.py
-
-# Environments
-.env
-.venv
-env/
+# Virtual environments
+.venv/
 venv/
-ENV/
-env.bak/
-venv.bak/
+env/
 app-fetch-venv/
 
-# Spyder project settings
-.spyderproject
-.spyproject
+# Environment variables
+.env
+.env.*
+!.env.example
 
-# Rope project settings
-.ropeproject
-
-# mkdocs documentation
-/site
-
-# mypy
+# IDE / Editor
+.vscode/
+.idea/
+.cursor/
+.cursorrules/
+*.swp
+*.swo
+*~
 .mypy_cache/
 .dmypy.json
-dmypy.json
+pyrightconfig.json
+settings.json
 
-# Pyre type checker
-.pyre/
-
-# pytype static type analyzer
-.pytype/
-
-# Cython debug symbols
-cython_debug/
-
-# Node.js dependencies
+# Node.js
 node_modules/
 npm-debug.log*
 yarn-debug.log*
@@ -143,102 +41,75 @@ yarn-error.log*
 
 # Next.js
 .next/
-frontend/node_modules/
-frontend/.next/
 out/
-
-# Production build
-/build
 
 # TypeScript
 *.tsbuildinfo
 
-# Miscellaneous
-.DS_Store
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-
-# Temporary files
-*.tmp
-*.temp
-*~
-
-# Editor directories and files
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# Docker
-.dockerignore
+# Testing
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.tox/
+.nox/
 
 # Database
 *.db
 *.sqlite3
-ai_data_science_dev.db
+*.sqlite3-journal
 
-# Uploads and data
+# Uploads and user data
 uploads/
+temp/
+output/
+outputs/
+
+# Data files (keep sample data in repo only if explicitly added)
 *.csv
 *.xlsx
-*.json
 *.parquet
-*.pdf
-
-# MLflow
-mlruns/
-mlflow_data/
-
-# H2O
-h2o-*
 
 # Logs
 logs/
 *.log
 *.out
 
-# OS generated files
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# MLflow
+mlruns/
+mlflow_data/
+
+# H2O
+h2o-*/
+
+# Docker
+.dockerignore
+
+# Archives
+*.tar.gz
+*.tar
+*.zip
+
+# OS
 .DS_Store
 .DS_Store?
 ._*
 .Spotlight-V100
 .Trashes
-ehthumbs.db
 Thumbs.db
 
-# IDEs
-.vscode/
-.idea/
-*.sublime-project
-*.sublime-workspace
-
-# Testing
-.coverage
-htmlcov/
-.pytest_cache/
-
-# Models and artifacts
+# Models and ML artifacts
 models/
 artifacts/
 checkpoints/
 
-# Deployment archives
-*.tar.gz
-*.zip
-*.tar 
+# Claude Code
+.claude/
 
-settings.json
-.cursor/
-.cursorrules/
-.cursor/rules/
-.cursor/rules/uagent-rest-endpoints.mdc
-.cursor/rules/venv.mdc
-.cursor/rules/app-rules.mdc
-
-pyrightconfig.json
-
-envForDocker.txt
-env.local
+# Misc
+*.tmp
+*.temp
