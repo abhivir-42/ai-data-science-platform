@@ -1,13 +1,9 @@
 /**
- * uAgent Client for direct integration with AI Data Science Platform agents
- * 
- * This client handles communication with 6 uAgents running on ports 8004-8009:
- * - 8004: Data Cleaning Agent 
- * - 8005: Data Loader Agent
- * - 8006: Data Visualization Agent  
- * - 8007: Feature Engineering Agent
- * - 8008: H2O ML Training Agent
- * - 8009: ML Prediction Agent
+ * Agent Client for AI Data Science Platform
+ *
+ * All agent requests are routed through the single FastAPI backend at /api/agents/{type}/*.
+ * In Docker, Next.js rewrites proxy /api/* to http://backend:8000/api/*.
+ * In local dev, requests go directly to http://localhost:8000/api/agents/*.
  */
 
 import type { SessionMeta } from './store';
@@ -25,7 +21,8 @@ export interface SessionResponse {
 
 export interface HealthResponse {
   status: string;
-  agent_status: string;
+  agent_status?: string;
+  agent?: string;
 }
 
 // Operation parameter types
@@ -55,7 +52,7 @@ export interface CleanDataParams {
 
 export interface VizParams {
   session_id?: string;
-  filename?: string; 
+  filename?: string;
   file_content?: string; // Base64 encoded CSV
   chart_type?: string;
   x_column?: string;
@@ -139,7 +136,7 @@ export interface AnalyzeModelParams {
   query: string;
 }
 
-// Result response types  
+// Result response types
 export interface DataResponse {
   data?: {
     records: Array<Record<string, unknown>>;
@@ -151,7 +148,7 @@ export interface DataResponse {
 
 export interface CodeResponse {
   code?: string;
-  generated_code?: string; // Backend uses this field name
+  generated_code?: string;
 }
 
 export interface ChartResponse {
@@ -190,40 +187,26 @@ export interface AnalysisResponse {
 // Agent types
 export type AgentType = 'loading' | 'cleaning' | 'visualization' | 'engineering' | 'training' | 'prediction';
 
-// Configuration for agent URLs - can be overridden via environment
-const DEFAULT_HOST = typeof window !== 'undefined' 
-  ? (window.location.hostname === 'localhost' ? '127.0.0.1' : window.location.hostname)
-  : '127.0.0.1'; // Use current hostname in browser, localhost in server
-
-// Configuration logged only in browser console (avoiding hydration issues)
-// Check console for uAgent client URLs if debugging is needed
-const AGENT_PORTS: Record<AgentType, number> = {
-  loading: 8005,
-  cleaning: 8004, 
-  visualization: 8006,
-  engineering: 8007,
-  training: 8008,
-  prediction: 8009,
+// Map agent types to backend route prefixes
+const AGENT_ROUTE_PREFIX: Record<AgentType, string> = {
+  loading: 'loading',
+  cleaning: 'cleaning',
+  visualization: 'visualization',
+  engineering: 'engineering',
+  training: 'training',
+  prediction: 'prediction',
 };
 
-// Base URLs for each agent with environment override support
-const AGENT_BASE_URLS: Record<AgentType, string> = {
-  loading: `http://${DEFAULT_HOST}:${AGENT_PORTS.loading}`,
-  cleaning: `http://${DEFAULT_HOST}:${AGENT_PORTS.cleaning}`, 
-  visualization: `http://${DEFAULT_HOST}:${AGENT_PORTS.visualization}`,
-  engineering: `http://${DEFAULT_HOST}:${AGENT_PORTS.engineering}`,
-  training: `http://${DEFAULT_HOST}:${AGENT_PORTS.training}`,
-  prediction: `http://${DEFAULT_HOST}:${AGENT_PORTS.prediction}`,
-};
+// Backend API base URL — uses relative path so Next.js rewrites handle proxying
+const API_BASE = typeof window !== 'undefined'
+  ? '/api/agents'
+  : 'http://backend:8000/api/agents';
 
-// Main backend API URL
-const BACKEND_API_URL = `http://${DEFAULT_HOST}:8000/api`;
-
-export class UAgentClient {
+export class AgentClient {
   private baseUrl: string;
-  
+
   constructor(private agentType: AgentType) {
-    this.baseUrl = AGENT_BASE_URLS[agentType];
+    this.baseUrl = `${API_BASE}/${AGENT_ROUTE_PREFIX[agentType]}`;
   }
 
   // Health check
@@ -231,11 +214,11 @@ export class UAgentClient {
     const response = await fetch(`${this.baseUrl}/health`, {
       method: 'GET',
     });
-    
+
     if (!response.ok) {
       throw new Error(`Health check failed: ${response.statusText}`);
     }
-    
+
     return response.json();
   }
 
@@ -243,40 +226,23 @@ export class UAgentClient {
   private async request<T>(endpoint: string, data?: unknown): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`;
 
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: data ? JSON.stringify(data) : undefined,
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        const error = new Error(`Request failed: ${response.status} ${response.statusText}: ${errorText}`);
-        throw error;
-      }
-
-      return response.json();
-    } catch (error) {
-      throw error;
-    }
-  }
-
-  private async getSessionResult<T>(endpoint: string): Promise<T> {
-    const response = await fetch(`${this.baseUrl}${endpoint}`, {
-      method: 'GET',
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: data ? JSON.stringify(data) : undefined,
     });
-    
+
     if (!response.ok) {
-      throw new Error(`Session result fetch failed: ${response.statusText}`);
+      const errorText = await response.text();
+      throw new Error(`Request failed: ${response.status} ${response.statusText}: ${errorText}`);
     }
-    
+
     return response.json();
   }
 
-  // Data Loader operations (8005)
+  // Data Loader operations
   async loadFile(params: LoadFileParams): Promise<SessionResponse> {
     return this.request<SessionResponse>('/load-file', params);
   }
@@ -285,7 +251,7 @@ export class UAgentClient {
     return this.request<SessionResponse>('/load-directory', params);
   }
 
-  // Data Cleaning operations (8004)
+  // Data Cleaning operations
   async cleanData(params: CleanDataParams): Promise<SessionResponse> {
     if (params.session_id) {
       return this.request<SessionResponse>('/clean-from-session', params);
@@ -294,7 +260,7 @@ export class UAgentClient {
     }
   }
 
-  // Visualization operations (8006)  
+  // Visualization operations
   async createChartDirect(params: VizParams): Promise<ChartResponse> {
     return this.request<ChartResponse>('/create-chart-direct', {
       filename: params.filename,
@@ -312,7 +278,7 @@ export class UAgentClient {
     }
   }
 
-  // Feature Engineering operations (8007)
+  // Feature Engineering operations
   async engineerFeatures(params: EngineerFeaturesParams): Promise<SessionResponse> {
     if (params.session_id) {
       return this.request<SessionResponse>('/engineer-features', params);
@@ -321,7 +287,7 @@ export class UAgentClient {
     }
   }
 
-  // ML Training operations (8008)
+  // ML Training operations
   async trainModel(params: TrainModelParams): Promise<SessionResponse> {
     if (params.session_id) {
       return this.request<SessionResponse>('/train-model-from-session', {
@@ -340,7 +306,7 @@ export class UAgentClient {
     }
   }
 
-  // ML Prediction operations (8009)
+  // ML Prediction operations
   async predictSingle(params: PredictSingleParams): Promise<SessionResponse> {
     return this.request<SessionResponse>('/predict-single', params);
   }
@@ -353,7 +319,7 @@ export class UAgentClient {
     return this.request<SessionResponse>('/analyze-model', params);
   }
 
-  // Session result getters  
+  // Session result getters
   async getSessionData(sessionId: string): Promise<DataResponse> {
     switch (this.agentType) {
       case 'loading':
@@ -367,7 +333,7 @@ export class UAgentClient {
       case 'prediction':
         return this.request<DataResponse>('/get-prediction-results', { session_id: sessionId });
       default:
-        return this.getSessionResult<DataResponse>(`/session/${sessionId}/data`);
+        throw new Error(`Data not available for agent type: ${this.agentType}`);
     }
   }
 
@@ -375,7 +341,7 @@ export class UAgentClient {
     switch (this.agentType) {
       case 'cleaning':
         const response = await this.request<{success: boolean, generated_code?: string, error?: string}>('/get-cleaning-function', { session_id: sessionId });
-        return { 
+        return {
           code: response.generated_code,
           generated_code: response.generated_code
         };
@@ -395,8 +361,8 @@ export class UAgentClient {
       throw new Error('Charts only available for visualization agent');
     }
     const response = await this.request<{success: boolean, plotly_chart?: any, chart_type?: string, error?: string}>('/get-plotly-graph', { session_id: sessionId });
-    return { 
-      figure: response.plotly_chart // Map plotly_chart to figure for frontend
+    return {
+      figure: response.plotly_chart
     };
   }
 
@@ -411,33 +377,18 @@ export class UAgentClient {
     switch (this.agentType) {
       case 'loading':
         const loadingResponse = await this.request<{success: boolean, data?: any, error?: string}>('/get-internal-messages', { session_id: sessionId });
-        return { 
-          logs: loadingResponse.success && loadingResponse.data ? [JSON.stringify(loadingResponse.data)] : [], 
+        return {
+          logs: loadingResponse.success && loadingResponse.data ? [JSON.stringify(loadingResponse.data)] : [],
           messages: loadingResponse.success && loadingResponse.data ? [JSON.stringify(loadingResponse.data)] : []
         };
       case 'cleaning':
-        const response = await this.request<{success: boolean, data?: string, error?: string}>('/get-logs', { session_id: sessionId });
-        return { 
-          logs: response.success && response.data ? [response.data] : [], 
-          messages: response.success && response.data ? [response.data] : []
-        };
       case 'engineering':
-        const engResponse = await this.request<{success: boolean, data?: string, error?: string}>('/get-logs', { session_id: sessionId });
-        return { 
-          logs: engResponse.success && engResponse.data ? [engResponse.data] : [], 
-          messages: engResponse.success && engResponse.data ? [engResponse.data] : []
-        };
       case 'training':
-        const trainLogResponse = await this.request<{success: boolean, data?: string, error?: string}>('/get-logs', { session_id: sessionId });
-        return { 
-          logs: trainLogResponse.success && trainLogResponse.data ? [trainLogResponse.data] : [], 
-          messages: trainLogResponse.success && trainLogResponse.data ? [trainLogResponse.data] : []
-        };
       case 'prediction':
-        const predLogResponse = await this.request<{success: boolean, data?: string, error?: string}>('/get-logs', { session_id: sessionId });
-        return { 
-          logs: predLogResponse.success && predLogResponse.data ? [predLogResponse.data] : [], 
-          messages: predLogResponse.success && predLogResponse.data ? [predLogResponse.data] : []
+        const logResponse = await this.request<{success: boolean, data?: string, error?: string}>('/get-logs', { session_id: sessionId });
+        return {
+          logs: logResponse.success && logResponse.data ? [logResponse.data] : [],
+          messages: logResponse.success && logResponse.data ? [logResponse.data] : []
         };
       default:
         return { logs: [], messages: [] };
@@ -448,31 +399,31 @@ export class UAgentClient {
     switch (this.agentType) {
       case 'cleaning':
         const response = await this.request<{success: boolean, data?: string, error?: string}>('/get-cleaning-steps', { session_id: sessionId });
-        return { 
+        return {
           recommendations: response.success && response.data ? [response.data] : [],
           cleaning_steps: response.success && response.data ? [response.data] : []
         };
       case 'visualization':
         const vizResponse = await this.request<{success: boolean, data?: string, error?: string}>('/get-visualization-steps', { session_id: sessionId });
-        return { 
+        return {
           recommendations: vizResponse.success && vizResponse.data ? [vizResponse.data] : [],
           visualization_steps: vizResponse.success && vizResponse.data ? [vizResponse.data] : []
         };
       case 'engineering':
         const engResponse = await this.request<{success: boolean, data?: string, error?: string}>('/get-engineering-steps', { session_id: sessionId });
-        return { 
+        return {
           recommendations: engResponse.success && engResponse.data ? [engResponse.data] : [],
           engineering_steps: engResponse.success && engResponse.data ? [engResponse.data] : []
         };
       case 'training':
         const trainResponse = await this.request<{success: boolean, data?: string, error?: string}>('/get-ml-steps', { session_id: sessionId });
-        return { 
+        return {
           recommendations: trainResponse.success && trainResponse.data ? [trainResponse.data] : [],
           ml_steps: trainResponse.success && trainResponse.data ? [trainResponse.data] : []
         };
       case 'prediction':
         const predResponse = await this.request<{success: boolean, data?: string, error?: string}>('/get-model-analysis', { session_id: sessionId });
-        return { 
+        return {
           recommendations: predResponse.success && predResponse.data ? [predResponse.data] : []
         };
       default:
@@ -486,8 +437,6 @@ export class UAgentClient {
     }
     return { analysis: '' };
   }
-
-  // Visualization specific methods
 
   // Data Loader specific methods
   async getSessionAIMessage(sessionId: string): Promise<{success: boolean, data?: string, error?: string}> {
@@ -511,7 +460,6 @@ export class UAgentClient {
     return this.request<{success: boolean, data?: any, error?: string}>('/get-full-response', { session_id: sessionId });
   }
 
-  // Cleanup data handler for Data Cleaning agent (special POST endpoint)
   async getCleanedData(sessionId: string): Promise<DataResponse> {
     if (this.agentType !== 'cleaning') {
       throw new Error('Cleaned data only available for cleaning agent');
@@ -519,7 +467,7 @@ export class UAgentClient {
     return this.request<DataResponse>('/get-cleaned-data', { session_id: sessionId });
   }
 
-  // 🔥 ML TRAINING AGENT SPECIFIC METHODS 🔥
+  // ML Training specific methods
   async getLeaderboard(sessionId: string): Promise<LeaderboardResponse> {
     if (this.agentType !== 'training') {
       throw new Error('Leaderboard only available for training agent');
@@ -563,23 +511,26 @@ export class UAgentClient {
   }
 }
 
+// Keep UAgentClient as alias for backward compatibility with any remaining references
+export const UAgentClient = AgentClient;
+
 // Singleton clients for each agent type
-export const dataLoaderClient = new UAgentClient('loading');
-export const dataCleaningClient = new UAgentClient('cleaning');  
-export const visualizationClient = new UAgentClient('visualization');
-export const featureEngineeringClient = new UAgentClient('engineering');
-export const trainingClient = new UAgentClient('training');
-export const predictionClient = new UAgentClient('prediction');
+export const dataLoaderClient = new AgentClient('loading');
+export const dataCleaningClient = new AgentClient('cleaning');
+export const visualizationClient = new AgentClient('visualization');
+export const featureEngineeringClient = new AgentClient('engineering');
+export const trainingClient = new AgentClient('training');
+export const predictionClient = new AgentClient('prediction');
 
 // Helper function to get client by agent type
-export function getAgentClient(agentType: AgentType): UAgentClient {
+export function getAgentClient(agentType: AgentType): AgentClient {
   switch (agentType) {
     case 'loading':
       return dataLoaderClient;
     case 'cleaning':
       return dataCleaningClient;
     case 'visualization':
-      return visualizationClient;  
+      return visualizationClient;
     case 'engineering':
       return featureEngineeringClient;
     case 'training':
@@ -591,26 +542,30 @@ export function getAgentClient(agentType: AgentType): UAgentClient {
   }
 }
 
+// Backend API base URL for session management
+const BACKEND_API_URL = typeof window !== 'undefined'
+  ? '/api'
+  : 'http://backend:8000/api';
+
 // Session synchronization functions
 export async function getBackendSessions(agentType?: AgentType): Promise<SessionMeta[]> {
   try {
-    const url = agentType 
+    const url = agentType
       ? `${BACKEND_API_URL}/agents/sessions?agent_type=${agentType}`
       : `${BACKEND_API_URL}/agents/sessions`;
-      
+
     const response = await fetch(url);
-    
+
     if (!response.ok) {
       throw new Error(`Failed to fetch sessions: ${response.statusText}`);
     }
-    
+
     const sessions = await response.json();
-    
-    // Convert backend session format to frontend SessionMeta format
+
     return sessions.map((session: any) => ({
       sessionId: session.session_id,
       agentType: session.agent_type as AgentType,
-      createdAt: new Date(session.created_at * 1000).toISOString(), // Convert Unix timestamp
+      createdAt: new Date(session.created_at * 1000).toISOString(),
       status: session.status as 'completed',
       description: session.description,
     }));
